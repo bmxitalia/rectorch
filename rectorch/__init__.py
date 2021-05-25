@@ -16,7 +16,7 @@ __status__ = "Development"
 #
 
 __all__ = ['StatefulObject', 'configuration', 'data', 'evaluation', 'metrics', 'models', 'utils',\
-           'validation', 'set_seed']
+           'validation', 'set_seed', 'env']
 
 
 class StatefulObject():

@@ -17,7 +17,7 @@ __email__ = "mak1788@gmail.com"
 __status__ = "Development"
 #
 
-__all__ = ['evaluate', 'one_plus_random']
+__all__ = ['evaluate', 'one_plus_random', 'logic_evaluate']
 
 
 def evaluate(model, test_sampler, metric_list):
@@ -145,6 +145,57 @@ def one_plus_random(model, test_sampler, metric_list, r=1000):
         gt = np.zeros_like(pred)
         gt[:, 0] = 1
         res = Metrics.compute(pred, gt, metric_list)
+        for m in res:
+            results[m].append(res[m])
+
+    for m in results:
+        results[m] = np.concatenate(results[m])
+    return results
+
+
+def logic_evaluate(model, test_loader, metric_list):
+    """Evaluate the given logical recommender.
+    The ``model`` evaluation is performed with all the provided metrics in ``metric_list``.
+    The test set is loaded through the provided DataSampler. Note that the test loader contains one positive expression
+    and 100 negative expressions for each interaction in the test set. The network computes the predictions for all
+    these 101 expressions and then the evaluation consists on computing ranking metrics based on the position of the
+    target item in the ranking. The position of an item in the ranking is given by the prediction that the network
+    outputs for the logical expression with that item at the right side of implication. The prediction is the similarity
+    between the logical expression event vector and the TRUE vector. Higher the similarity higher the position of the
+    target item in the ranking.
+    Parameters
+    ----------
+    model : the logical model to evaluate.
+    test_loader : the DataSampler for the test set.
+    metric_list : list of :obj:`str`
+        The list of metrics to compute. Metrics are indicated by strings formed in the
+        following way:
+        ``metric_name`` @ ``k``
+        where ``metric_name`` must correspond to one of the
+        method names without the suffix '_at_k', and ``k`` is the corresponding parameter of
+        the method and it must be an integer value. For example: ``ndcg@10`` is a valid metric
+        name and it corresponds to the method
+        :func:`ndcg_at_k` with ``k=10``.
+    Returns
+    -------
+    :obj:`dict` of :obj:`numpy.array`
+        Dictionary with the results for each metric in ``metric_list``. Keys are string
+        representing the metrics, while values are arrays with the values of the metrics
+        computed on the test interactions.
+    """
+    results = {m:[] for m in metric_list}
+    for batch_idx, batch_data in enumerate(test_loader):
+        positive_pred, negative_pred = model.predict(batch_data)
+        # we concatenate the positive prediction to the negative predictions
+        # in each row of the final tensor we will have the positive prediction in the first column
+        # and the 100 negative predictions in the last 100 columns
+        positive_pred = positive_pred.view(positive_pred.size(0), 1)
+        pred_scores = torch.cat((positive_pred, negative_pred), dim=1)
+        # now, we need to construct the ground truth tensor
+        ground_truth = np.zeros(pred_scores.size())
+        ground_truth[:, 0] = 1  # the positive item is always in the first column of pred_scores, as we said before
+        pred_scores = pred_scores.cpu().numpy()
+        res = Metrics.compute(pred_scores, ground_truth, metric_list)
         for m in res:
             results[m].append(res[m])
 

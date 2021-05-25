@@ -100,7 +100,7 @@ class NeuralNet(nn.Module, StatefulObject):
     def forward(self, *args, **kwargs):
         raise NotImplementedError()
 
-    def init_weights(self):
+    def init_weights(self, *args, **kwargs):
         r"""Initialize the weights of the network.
         """
         raise NotImplementedError()

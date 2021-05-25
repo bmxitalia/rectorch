@@ -66,11 +66,12 @@ def get_data_cfg(ds_name=None):
     ds_name : :obj:`str` [optional]
         The name of the dataset. Possible values are:
 
-        * 'ml1m' : Movielens 100k;
+        * 'ml100k' : Movielens 100k;
         * 'ml1m' : Movielens 1 million;
         * 'ml20m': Movielens 20 million;
         * 'msd' : Million Song Dataset;
-        * 'netflix' : Netflix Challenge Dataset.
+        * 'netflix' : Netflix Challenge Dataset;
+        * 'ml100k_ncr' : Movielens 100k for NCR model.
 
         .. warning:: The Netflix dataset is assumed of being merged into a single CSV file named
            'ratings.csv'. In the `github homepage <https://github.com/makgyver/rectorch>`_
@@ -100,6 +101,9 @@ def get_data_cfg(ds_name=None):
             cfg = json.load(f)
     elif ds_name == "msd":
         with open(p + 'config/config_data_msd.json') as f:
+            cfg = json.load(f)
+    elif ds_name == "ml100k_ncr":
+        with open(p + 'config/config_data_ml100k_ncr.json') as f:
             cfg = json.load(f)
     else:
         cfg = {

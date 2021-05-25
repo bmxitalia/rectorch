@@ -959,7 +959,7 @@ class NCRDataset():
             values.extend([1] * len(items))
         return csr_matrix((values, (rows, cols)), (self.n_users, self.n_items))
 
-    def process_data(self, threshold=4, order=True, leave_n=1, keep_n=5, max_history_length=5, premise_threshold=0):
+    def process_data(self):
         # TODO remove the parameters of the method. Just took there to see the default values
         """
         It processes the dataset given the preprocessing parameters. In particular, it filters the user-item
@@ -978,10 +978,10 @@ class NCRDataset():
         """
         # filter ratings by threshold
         self.proc_dataset = self.dataset.copy()
-        self.proc_dataset['rating'][self.proc_dataset['rating'] < self.cfg.processing.threshold] = 0
-        self.proc_dataset['rating'][self.proc_dataset['rating'] >= self.cfg.processing.threshold] = 1
+        self.proc_dataset['rating'][self.proc_dataset['rating'] < self.cfg.processing.rating_threshold] = 0
+        self.proc_dataset['rating'][self.proc_dataset['rating'] >= self.cfg.processing.rating_threshold] = 1
 
-        if order:
+        if self.cfg.processing.rating_order:
             self.proc_dataset = self.proc_dataset.sort_values(by=['timestamp', 'userID', 'itemID']).reset_index(drop=True)
 
         self.leave_one_out_by_time(self.cfg.splitting.leave_n, self.cfg.splitting.keep_n)
@@ -1004,7 +1004,6 @@ class NCRDataset():
         # generate training set by looking for the first keep_n POSITIVE interactions
         processed_data = self.proc_dataset.copy()
         for uid, group in processed_data.groupby('userID'):  # group by uid
-            print(group)
             found, found_idx = 0, -1
             for idx in group.index:
                 if group.loc[idx, 'rating'] > 0:

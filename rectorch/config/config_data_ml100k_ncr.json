@@ -1,0 +1,15 @@
+{
+    "processing": {
+        "data_path": "./ml-100k/movielens_100k.csv",
+        "separator": ",",
+        "header": 0,
+        "rating_order": 1,
+        "rating_threshold": 4,
+        "max_history_length": 5,
+        "premise_threshold": 0
+    },
+    "splitting": {
+        "leave_n": 1,
+        "keep_n": 5
+    }
+}

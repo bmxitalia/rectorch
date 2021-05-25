@@ -6,6 +6,7 @@ from scipy.sparse import csr_matrix
 from rectorch import env
 from rectorch.metrics import Metrics
 from rectorch.utils import prepare_for_prediction
+import torch
 
 # AUTHORSHIP
 __version__ = "0.9.0dev"
@@ -54,7 +55,7 @@ def evaluate(model, test_sampler, metric_list):
     """
     if test_sampler.mode == "train":
         test_sampler.test()
-        env.logger.warning("Sampler must be in valid or test mode. Froced switch to test mode!")
+        env.logger.warning("Sampler must be in valid or test mode. Forced switch to test mode!")
 
     results = {m:[] for m in metric_list}
     for _, (data_input, ground_truth) in enumerate(test_sampler):
@@ -114,7 +115,7 @@ def one_plus_random(model, test_sampler, metric_list, r=1000):
     """
     if test_sampler.mode == "train":
         test_sampler.test()
-        env.logger.warning("Sampler must be in valid or test mode. Froced switch to test mode!")
+        env.logger.warning("Sampler must be in valid or test mode. Forced switch to test mode!")
 
     results = {m:[] for m in metric_list}
     for _, (data_input, ground_truth) in enumerate(test_sampler):
@@ -153,7 +154,7 @@ def one_plus_random(model, test_sampler, metric_list, r=1000):
     return results
 
 
-def logic_evaluate(model, test_loader, metric_list):
+def logic_evaluate(model, test_sampler, metric_list):
     """Evaluate the given logical recommender.
     The ``model`` evaluation is performed with all the provided metrics in ``metric_list``.
     The test set is loaded through the provided DataSampler. Note that the test loader contains one positive expression
@@ -183,8 +184,12 @@ def logic_evaluate(model, test_loader, metric_list):
         representing the metrics, while values are arrays with the values of the metrics
         computed on the test interactions.
     """
+    if test_sampler.mode == "train":
+        test_sampler.test()
+        env.logger.warning("Sampler must be in valid or test mode. Forced switch to test mode!")
+
     results = {m:[] for m in metric_list}
-    for batch_idx, batch_data in enumerate(test_loader):
+    for batch_idx, batch_data in enumerate(test_sampler):
         positive_pred, negative_pred = model.predict(batch_data)
         # we concatenate the positive prediction to the negative predictions
         # in each row of the final tensor we will have the positive prediction in the first column

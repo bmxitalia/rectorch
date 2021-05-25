@@ -35,7 +35,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.init import normal_ as normal_init
-from rectorch import env
+from rectorch import env, set_seed
 from rectorch.samplers import Sampler
 from rectorch.models.nn import NeuralNet, TorchNNTrainer, NeuralModel
 from rectorch.evaluation import logic_evaluate
@@ -84,17 +84,12 @@ class NCR_net(NeuralNet):
        Management (CIKM ’18). Association for Computing Machinery, New York, NY, USA, 137–146.
        DOI: https://doi.org/10.1145/3269206.3271743
     """
-    def __init__(self, n_users, n_items, emb_size=64, dropout=0.0, seed=2022, remove_double_not=False):
+    def __init__(self, n_users, n_items, emb_size=64, dropout=0.0, remove_double_not=False):
         super(NCR_net, self).__init__()
         self.n_users = n_users
         self.n_items = n_items
         self.emb_size = emb_size
         self.dropout = dropout
-        self.seed = seed
-        # set pytorch and numpy seed
-        torch.manual_seed(self.seed)
-        torch.cuda.manual_seed(self.seed)
-        np.random.seed(self.seed)
         # initialization of user and item embeddings
         self.item_embeddings = torch.nn.Embedding(self.n_items, self.emb_size)
         self.user_embeddings = torch.nn.Embedding(self.n_users, self.emb_size)
@@ -393,7 +388,6 @@ class NCR_net(NeuralNet):
                 "n_items" : self.n_items,
                 "emb_size" : self.emb_size,
                 "dropout" : self.dropout,
-                "seed" : self.seed,
                 "remove_double_not" : self.remove_double_not
             }
         }
@@ -414,27 +408,23 @@ class NCR_Sampler(Sampler):
     for the sampling of negative items.
     batch_size : the size of the batches, by default 1.
     shuffle : whether the data set must by randomly shuffled before creating the batches, by default ``True``
-    seed: the random seed for the shuffle
     device: the device where the torch tensors have to be put
     """
     def __init__(self,
                  data,
                  mode='train',
-                 n_neg_samples=1,
+                 n_neg_samples_t=1,
+                 n_neg_samples_vt=100,
                  batch_size=128,
-                 shuffle=True,
-                 seed=2022,
-                 device='cuda:0'):
-        super(NCR_Sampler, self).__init__()
+                 shuffle=True):
+        super(NCR_Sampler, self).__init__(data, mode, batch_size)
         self.dataset = data
-        self.n_neg_samples = n_neg_samples
+        self.n_neg_samples_t = n_neg_samples_t
+        self.n_neg_samples_vt = n_neg_samples_vt
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.seed = seed
-        self.device = device
-        np.random.seed(self.seed)
-        random.seed(self.seed)
         self._set_mode(mode)
+
 
     def _set_mode(self, mode="train", batch_size=None):
         assert mode in ["train", "valid", "test"], "Invalid sampler's mode."
@@ -442,10 +432,13 @@ class NCR_Sampler(Sampler):
 
         if self.mode == "train":
             self.data = self.dataset.train_set
+            self.n_neg_samples = self.n_neg_samples_t
         elif self.mode == "valid":
             self.data = self.dataset.valid_set
+            self.n_neg_samples = self.n_neg_samples_vt
         else:
             self.data = self.dataset.test_set
+            self.n_neg_samples = self.n_neg_samples_vt
 
         if batch_size is not None:
             self.batch_size = batch_size
@@ -488,7 +481,7 @@ class NCR_Sampler(Sampler):
                 batch_feedbacks = torch.from_numpy(group_feedbacks[idxlist[start_idx:end_idx]])
 
                 # here, we generate negative items for each interaction in the batch
-                batch_user_item_matrix = self.data.user_item_matrix[batch_users].toarray()  # this is the portion of the
+                batch_user_item_matrix = self.dataset.user_item_matrix[batch_users].toarray()  # this is the portion of the
                 # user-item matrix for the users in the batch
                 batch_user_unseen_items = 1 - batch_user_item_matrix  # this matrix contains the items that each user
                 # in the batch has never seen
@@ -502,8 +495,8 @@ class NCR_Sampler(Sampler):
                     negative_items.append(rnd_negatives)
                 batch_negative_items = torch.tensor(negative_items)
 
-                yield batch_users.to(self.device), batch_items.to(self.device), batch_histories.to(self.device), \
-                      batch_feedbacks.to(self.device), batch_negative_items.to(self.device)
+                yield batch_users.to(env.device), batch_items.to(env.device), batch_histories.to(env.device), \
+                      batch_feedbacks.to(env.device), batch_negative_items.to(env.device)
 
 
 class NCR_trainer(TorchNNTrainer):
@@ -546,19 +539,14 @@ class NCR_trainer(TorchNNTrainer):
         Optimizer used for performing the training of the discriminator.
     """
     def __init__(self,
-                 net,
-                 learning_rate=0.001,
-                 l2_weight=1e-4,
+                 ncr_net,
                  logic_reg_weight=0.01,
                  device=None,
                  opt_conf=None):
-        super(NCR_trainer, self).__init__(net, device, opt_conf)
-        self.net = self.network
-
-        self.lr = learning_rate
-        self.l2_weight = l2_weight
+        super(NCR_trainer, self).__init__(ncr_net, device, opt_conf)
+        self.ncr_net = self.network
         self.reg_weight = logic_reg_weight
-        self.optimizer = init_optimizer(self.net.parameters(), opt_conf)
+        self.optimizer = init_optimizer(self.ncr_net.parameters(), opt_conf)
 
 
     def reg_loss(self, constraints):
@@ -567,7 +555,7 @@ class NCR_trainer(TorchNNTrainer):
         :param constraints: see loss_function()
         :return: the regularization loss for the batch intermediate event vectors given in input.
         """
-        false_vector = self.net.logic_not(self.net.true_vector)  # we compute the representation
+        false_vector = self.ncr_net.logic_not(self.ncr_net.true_vector)  # we compute the representation
         # for the FALSE vector
 
         # here, we need to implement the logical regularizers for the logical regularization
@@ -579,75 +567,75 @@ class NCR_trainer(TorchNNTrainer):
 
         # here, we maximize the similarity between not not true and true
         r_not_not_true = (1 - F.cosine_similarity(
-            self.net.logic_not(self.net.logic_not(self.net.true_vector)), self.net.true_vector, dim=0))
+            self.ncr_net.logic_not(self.ncr_net.logic_not(self.ncr_net.true_vector)), self.ncr_net.true_vector, dim=0))
 
         # here, we maximize the similarity between not true and false
-        # r_not_true = (1 - F.cosine_similarity(self.net.logic_not(self.net.true_vector), false_vector, dim=0))
+        # r_not_true = (1 - F.cosine_similarity(self.ncr_net.logic_not(self.ncr_net.true_vector), false_vector, dim=0))
 
         # here, we maximize the similarity between not not x and x
         r_not_not_self = \
-            (1 - F.cosine_similarity(self.net.logic_not(self.net.logic_not(constraints)), constraints)).mean()
+            (1 - F.cosine_similarity(self.ncr_net.logic_not(self.ncr_net.logic_not(constraints)), constraints)).mean()
 
         # here, we minimize the similarity between not x and x
-        r_not_self = (1 + F.cosine_similarity(self.net.logic_not(constraints), constraints)).mean()
+        r_not_self = (1 + F.cosine_similarity(self.ncr_net.logic_not(constraints), constraints)).mean()
 
         # here, we minimize the similarity between not not x and not x
         r_not_not_not = \
-            (1 + F.cosine_similarity(self.net.logic_not(self.net.logic_not(constraints)),
-                                     self.net.logic_not(constraints))).mean()
+            (1 + F.cosine_similarity(self.ncr_net.logic_not(self.ncr_net.logic_not(constraints)),
+                                     self.ncr_net.logic_not(constraints))).mean()
 
         # here, we implement the logical regularizers for the OR operator
 
         # here, we maximize the similarity between x OR True and True
         r_or_true = (1 - F.cosine_similarity(
-            self.net.logic_or(constraints, self.net.true_vector.expand_as(constraints)),
-            self.net.true_vector.expand_as(constraints))).mean()
+            self.ncr_net.logic_or(constraints, self.ncr_net.true_vector.expand_as(constraints)),
+            self.ncr_net.true_vector.expand_as(constraints))).mean()
 
         # here, we maximize the similarity between x OR False and x
         r_or_false = (1 - F.cosine_similarity(
-            self.net.logic_or(constraints, false_vector.expand_as(constraints)), constraints)).mean()
+            self.ncr_net.logic_or(constraints, false_vector.expand_as(constraints)), constraints)).mean()
 
         # here, we maximize the similarity between x OR x and x
-        r_or_self = (1 - F.cosine_similarity(self.net.logic_or(constraints, constraints), constraints)).mean()
+        r_or_self = (1 - F.cosine_similarity(self.ncr_net.logic_or(constraints, constraints), constraints)).mean()
 
         # here, we maximize the similarity between x OR not x and True
         r_or_not_self = (1 - F.cosine_similarity(
-            self.net.logic_or(constraints, self.net.logic_not(constraints)),
-            self.net.true_vector.expand_as(constraints))).mean()
+            self.ncr_net.logic_or(constraints, self.ncr_net.logic_not(constraints)),
+            self.ncr_net.true_vector.expand_as(constraints))).mean()
 
         # same rule as before, but we flipped operands
         r_or_not_self_inverse = (1 - F.cosine_similarity(
-            self.net.logic_or(self.net.logic_not(constraints), constraints),
-            self.net.true_vector.expand_as(constraints))).mean()
+            self.ncr_net.logic_or(self.ncr_net.logic_not(constraints), constraints),
+            self.ncr_net.true_vector.expand_as(constraints))).mean()
 
         # here, we implement the logical regularizers for the AND operator
 
         # here, we maximize the similarity between x AND True and x
         r_and_true = (1 - F.cosine_similarity(
-            self.net.logic_and(constraints, self.net.true_vector.expand_as(constraints)), constraints)).mean()
+            self.ncr_net.logic_and(constraints, self.ncr_net.true_vector.expand_as(constraints)), constraints)).mean()
 
         # here, we maximize the similarity between x AND False and False
         r_and_false = (1 - F.cosine_similarity(
-            self.net.logic_and(constraints, false_vector.expand_as(constraints)),
+            self.ncr_net.logic_and(constraints, false_vector.expand_as(constraints)),
             false_vector.expand_as(constraints))).mean()
 
         # here, we maximize the similarity between x AND x and x
-        r_and_self = (1 - F.cosine_similarity(self.net.logic_and(constraints, constraints), constraints)).mean()
+        r_and_self = (1 - F.cosine_similarity(self.ncr_net.logic_and(constraints, constraints), constraints)).mean()
 
         # here, we maximize the similarity between x AND not x and False
         r_and_not_self = (1 - F.cosine_similarity(
-            self.net.logic_and(constraints, self.net.logic_not(constraints)),
+            self.ncr_net.logic_and(constraints, self.ncr_net.logic_not(constraints)),
             false_vector.expand_as(constraints))).mean()
 
         # same rule as before, but we flipped operands
         r_and_not_self_inverse = (1 - F.cosine_similarity(
-            self.net.logic_and(self.net.logic_not(constraints), constraints),
+            self.ncr_net.logic_and(self.ncr_net.logic_not(constraints), constraints),
             false_vector.expand_as(constraints))).mean()
 
         # True/False rule
 
         # here, we minimize the similarity between True and False
-        true_false = 1 + F.cosine_similarity(self.net.true_vector, false_vector, dim=0)
+        true_false = 1 + F.cosine_similarity(self.ncr_net.true_vector, false_vector, dim=0)
 
         r_loss = r_not_not_true + r_not_not_self + r_not_self + r_not_not_not + \
                  r_or_true + r_or_false + r_or_self + r_or_not_self + r_or_not_self_inverse + true_false + \
@@ -682,14 +670,14 @@ class NCR_trainer(TorchNNTrainer):
 
 
     def train_epoch(self, epoch, data_sampler, verbose):
-        data_sampler.train()
         """
-                This method performs the training of a single epoch.
-                :param epoch: id of the epoch.
-                :param train_loader: the DataLoader that loads the training set.
-                :param verbose: see train() method.
-                """
-        self.net.train()  # set the network in train mode
+        This method performs the training of a single epoch.
+        :param epoch: id of the epoch.
+        :param train_loader: the DataLoader that loads the training set.
+        :param verbose: see train() method.
+        """
+        data_sampler.train()
+        self.ncr_net.train()  # set the network in train mode
         train_loss = 0
         partial_loss = 0
         epoch_start_time = time.time()
@@ -721,11 +709,11 @@ class NCR_trainer(TorchNNTrainer):
         :return the partial loss computed on the given batch.
         """
         self.optimizer.zero_grad()
-        positive_preds, negative_preds, constraints = self.network(batch_data)
+        positive_preds, negative_preds, constraints = self.ncr_net(batch_data)
         loss = self.loss_function(positive_preds, negative_preds, constraints)
         loss.backward()
         # this gradient clipping leads to lower results, so I removed it
-        # torch.nn.utils.clip_grad_value_(self.network.parameters(), 50)  # this has been inserted in the code provided
+        # torch.nn.utils.clip_grad_value_(self.ncr_net.parameters(), 50)  # this has been inserted in the code provided
         self.optimizer.step()
         return loss.item()
 
@@ -733,23 +721,22 @@ class NCR_trainer(TorchNNTrainer):
     def get_state(self):
         state = {
             'epoch': self.current_epoch,
-            'network': self.net.get_state(),
+            'network': self.ncr_net.get_state(),
             'optimizer': self.optimizer.state_dict(),
             'params': {
-                 'learning_rate' : self.lr,
-                 'l2_weight' : self.l2_weight,
                  'logic_reg_weight' : self.reg_weight,
                  'opt_conf' : self.opt_conf
             }
         }
         return state
 
+
     @classmethod
     def from_state(cls, state):
-        net_class = getattr(import_module(cls.__module__), state["network"]["name"])
-        net = net_class(**state['network']['params'])
-        trainer = NCR_trainer(net, **state['params'])
-        trainer.net.load_state_dict(state["network"]['state'])
+        ncr_net_class = getattr(import_module(cls.__module__), state["network"]["name"])
+        ncr_net = ncr_net_class(**state['network']['params'])
+        trainer = NCR_trainer(ncr_net, **state['params'])
+        trainer.ncr_net.load_state_dict(state["network"]['state'])
         trainer.optimizer.load_state_dict(state['optimizer'])
         trainer.current_epoch = state['epoch']
         return trainer
@@ -785,10 +772,7 @@ class NCR(NeuralModel):
                  n_items,
                  emb_size=64,
                  dropout=0.0,
-                 seed=2022,
                  remove_double_not=False,
-                 learning_rate=0.001,
-                 l2_weight=1e-4,
                  logic_reg_weight=0.01,
                  opt_conf=None,
                  device=None,
@@ -797,25 +781,28 @@ class NCR(NeuralModel):
             super(NCR, self).__init__(trainer.net, trainer, trainer.device)
         else:
             device = torch.device(device) if device is not None else env.device
-            net = NCR_net(n_users, n_items, emb_size, dropout, seed, remove_double_not)
-            trainer = NCR_trainer(net,
-                                  learning_rate,
-                                  l2_weight,
+            network = NCR_net(n_users, n_items, emb_size, dropout, remove_double_not)
+            trainer = NCR_trainer(network,
                                   logic_reg_weight,
                                   device=device,
                                   opt_conf=opt_conf)
-            super(NCR, self).__init__(trainer.net, trainer, device)
+            super(NCR, self).__init__(network, trainer, device)
+
 
     def train(self,
               dataset,
-              batch_size=64,
+              batch_size=128,
+              n_neg_samples_t=1,
+              n_neg_samples_vt=100,
+              shuffle=True,
               valid_metric=None,
               valid_func=ValidFunc(logic_evaluate),
               num_epochs=100,
               at_least=20,
               early_stop=5,
-              save_path="../saved_models/best_ncr_model.json",
-              verbose=1):
+              best_path="./saved_models/best_ncr_model.json",
+              verbose=1,
+              seed=None):
         r"""Training procedure of CFGAN.
 
         The training works in an alternate way between generator and discriminator.
@@ -845,12 +832,16 @@ class NCR(NeuralModel):
             value greater than 0. However, after reaching a maximum verbosity value (that depends on
             the size of the training set), higher values will not have any effect.
         """
+        set_seed(seed)
         if isinstance(dataset, Sampler):
             data_sampler = dataset
         else:
             data_sampler = NCR_Sampler(dataset,
                                        mode="train",
-                                       batch_size=batch_size)
+                                       n_neg_samples_t=n_neg_samples_t,
+                                       n_neg_samples_vt=n_neg_samples_vt,
+                                       batch_size=batch_size,
+                                       shuffle=shuffle)
 
         best_val = 0.0
         early_stop_counter = 0
@@ -859,7 +850,7 @@ class NCR(NeuralModel):
             early_stop_flag = True
         try:
             for epoch in range(1, num_epochs + 1):
-                self.train_epoch(epoch, data_sampler, verbose)
+                self.trainer.train_epoch(epoch, data_sampler, verbose)
                 if valid_metric is not None:
                     data_sampler.valid()
                     valid_res = valid_func(self, data_sampler, valid_metric)
@@ -869,7 +860,7 @@ class NCR(NeuralModel):
                                 epoch, valid_metric, mu_val, std_err_val)
                     if mu_val > best_val:
                         best_val = mu_val
-                        self.save_model(save_path)  # save model if an improved validation score has been
+                        self.save_model(best_path)  # save model if an improved validation score has been
                         # obtained
                         early_stop_counter = 0  # we have reached a new validation best value, so we put the early stop
                         # counter to zero
@@ -904,6 +895,47 @@ class NCR(NeuralModel):
         with torch.no_grad():
             positive_predictions, negative_predictions, _ = self.network(batch_data)
         return positive_predictions, negative_predictions
+
+
+    def test(self, dataset, n_neg_samples=100, batch_size=256, test_metrics=['ndcg@5', 'ndcg@10', 'hit@5', 'hit@10'],
+             n_times=10):
+        """
+        This method performs the test of a trained NCR model.
+        :param test_loader: this is the DataSampler that loads the test set interactions.
+        :param test_metrics: this is a list containing the test metrics that have to be computed.
+        :param n_times: this is the number of times that the evaluation has to be computed. Since the test loader
+        generates 100 random negative items for each interaction in the test set, different random generations
+        could lead to different test performances. The evaluation will be computed n_times times and then each metric
+        will be averaged among these n_times evaluations.
+        This method will log the value of each one of the metrics (plus std error) once this procedure has finished.
+        """
+        if isinstance(dataset, Sampler):
+            data_sampler = dataset
+        else:
+            data_sampler = NCR_Sampler(dataset,
+                                       mode="test",
+                                       n_neg_samples_vt=n_neg_samples,
+                                       batch_size=batch_size)
+        data_sampler.test()
+        metric_dict = {}
+        for i in range(n_times):  # compute test metrics n_times times and take the mean since negative samples are
+            # randomly generated
+            evaluation_dict = logic_evaluate(self, data_sampler, test_metrics)
+            for metric in evaluation_dict:
+                if metric not in metric_dict:
+                    metric_dict[metric] = {}
+                metric_mean = np.mean(evaluation_dict[metric])
+                metric_std_err_val = np.std(evaluation_dict[metric]) / np.sqrt(len(evaluation_dict[metric]))
+                if "mean" not in metric_dict[metric]:
+                    metric_dict[metric]["mean"] = metric_mean
+                    metric_dict[metric]["std"] = metric_std_err_val
+                else:
+                    metric_dict[metric]["mean"] += metric_mean
+                    metric_dict[metric]["std"] += metric_std_err_val
+
+        for metric in metric_dict:
+            env.logger.info('%s: %.3f (%.4f)', metric, metric_dict[metric]["mean"] / n_times,
+                        metric_dict[metric]["std"] / n_times)
 
     @classmethod
     def from_state(cls, state):

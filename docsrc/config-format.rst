@@ -51,8 +51,8 @@ This is an example of a valid data configuration file:
             "i_min": 0
         },
         "splitting": {
-            "split_type": "vertical", 
-            "sort_by": null, 
+            "split_type": "vertical",
+            "sort_by": null,
             "seed": 98765,
             "shuffle": 1,
             "valid_size": 100,
@@ -69,6 +69,77 @@ where ratings less than 3.5 stars are discarded as well as users with less than 
 The splitting type is vertical and the heldout set has size 100 users (100 for validation set and 100 for the test set).
 Ratings are not sorted but shuffled. The portion of ratings kept in the testing part of each users is 20%. Top-N is the task so the
 remaining positive ratings are set equal to 1. Some examples of data configuration files are
+available in `GitHub <https://github.com/makgyver/rectorch/tree/master/config>`_.
+
+
+Neural Collaborative Reasoning data configuration file
+------------------------
+
+The data configuration file for Neural Collaborative Reasoning (`NCR <https://grouplens.org/datasets/movielens/100k/>`_) is different from the standard configuration file
+since NCR uses a proprietary pre-processing.
+In particular, the pre-processing includes the following steps:
+
+1. the interactions are divided into positive and negative interactions based on a threshold. The interactions equal to
+or higher than the threshold are mapped to 1, while the remaining interactions are mapped to 0;
+2. all the interactions are ordered by timestamp;
+3. the dataset is splitted into train, validation and test set using the leave-one procedure reported in the NCR paper;
+4. the logical expressions are generated for train, validation, and test sets using the procedure explained in the NCR
+paper.
+
+The `.json <https://www.json.org/json-en.html>`_ data configuration file for NCR must have the following key-value pairs:
+
+* ``processing``: dictionary with the pre-processing configurations;
+* ``splitting``: dictionary with the splitting configurations.
+
+The ``processing`` options are the following:
+
+* ``data_path``: string representing the path to the data set `.csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_ file;
+* ``rating_threshold``: float value for converting explicit feedback to implicit feedback. All the ratings equal to or higher
+than ``rating_threshold`` are mapped to 1, while the remaining ratings are mapped to 0;
+* ``separator``: string delimiter used in the `.csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_ file;
+* ``header``: number of rows of the header (if no header set to ``None`` or ``null`` if in *json*);
+* ``rating_order``: flag indicating whether the dataset has to be ordered by timestamp or not before splitting it using
+the procedure explained in the NCR paper;
+* ``max_history_length``: integer maximum number of items in the premise of the logical expressions;
+* ``premise_threshold``: integer threshold used to cut-off logical expressions from the dataset based on the number of
+premises. All the logical expressions with a number of premises equal to or lower than premise_threshold are removed
+from the dataset.
+
+The ``splitting`` options are the following:
+
+* ``leave_n``: number of positive interactions that have to be held-out for validation and test sets. For example, if
+``leave_n`` is set to 2, then for each user two positive interactions are put in validation set and 2 positive interactions
+are put in test set;
+* ``keep_n``: minimum number of positive interactions that must be put in the training set for each user.
+
+This is an example of a valid data configuration file for NCR:
+
+.. code-block:: json
+
+    {
+        "processing": {
+        "data_path": "./ml-100k/movielens_100k.csv",
+        "separator": ",",
+        "header": 0,
+        "rating_order": 1,
+        "rating_threshold": 4,
+        "max_history_length": 5,
+        "premise_threshold": 0
+    },
+        "splitting": {
+            "leave_n": 1,
+            "keep_n": 5
+        }
+    }
+
+
+
+The example above is a valid configuration for the `Movielens 100k dataset <https://grouplens.org/datasets/movielens/100k/>`_
+where ratings equal to or higher than 4 stars are considered as positive, while ratings lower than 4 are considered as negative.
+The ratings are ordered by timestamp before splitting the dataset into train, validation, and test set. The dataset is then
+splitted into train, validation, and test sets using the parameters ``leave_n`` and ``keep_n``. Finally, the logical expressions
+for the three folds are generated according to parameters ``max_history_length`` and ``premise_threshold``.
+Some examples of data configuration files are
 available in `GitHub <https://github.com/makgyver/rectorch/tree/master/config>`_.
 
 Model configuration file

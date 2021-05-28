@@ -2,7 +2,7 @@ r"""The ``data`` module manages the reading, writing and loading of the data set
 
 The supported data set format is standard `csv
 <https://it.wikipedia.org/wiki/Comma-separated_values>`_.
-For more information about the expected data set fromat please visit :ref:`csv-format`.
+For more information about the expected data set format please visit :ref:`csv-format`.
 The data processing and loading configurations are managed through the configuration files
 as described in :ref:`config-format`.
 The vertical data splitting phase is highly inspired by `VAE-CF source code
@@ -21,6 +21,10 @@ The same computation can be simplified as follows:
 
 >>> from rectorch.data import DataProcessing
 >>> dataset = DataProcessing("/path/to/the/config/file").process_and_split()
+
+Notes
+----------
+For the Neural Collaborative Reasoning (NCR) model, :class:`NCRDataProcessing` has to be used instead of :class:`DataProcessing`.
 
 See Also
 --------
@@ -560,7 +564,7 @@ class Dataset():
 
 
 class DataProcessing():
-    r"""Base class that manages the pre-processing of raw data sets.
+    r"""Base class for the pre-processing of raw data sets.
 
     Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
     files where each row represents a rating. More details about the allowed format are described
@@ -611,6 +615,11 @@ class DataProcessing():
         -------
         :class:`pandas.DataFrame`
             The pre-processed dataset.
+
+        Raises
+        ------
+        :class:`NotImplementedError`
+            Raised when not implemeneted in the sub-class.
         """
         raise NotImplementedError
 
@@ -629,6 +638,11 @@ class DataProcessing():
         -------
         :class:`Dataset` or :obj:`list` of :class:`Dataset`
             The splitted dataset(s).
+
+        Raises
+        ------
+        :class:`NotImplementedError`
+            Raised when not implemeneted in the sub-class.
         """
         raise NotImplementedError
 
@@ -645,7 +659,7 @@ class DataProcessing():
 
 
 class StandardDataProcessing(DataProcessing):
-    r"""Class that manages the standard pre-processing of raw data sets.
+    r"""Class that manages the standard rectorch pre-processing of raw data sets.
 
     Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
     files where each row represents a rating. More details about the allowed format are described
@@ -964,7 +978,44 @@ class StandardDataProcessing(DataProcessing):
 
 
 class NCRDataProcessing(DataProcessing):
-    def __init__(self, data_config):
+    r"""Class that manages the pre-processing of raw data sets for Neural Collaborative Reasoning (NCR).
+
+    Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
+    files where each row represents a rating. More details about the allowed format are described
+    in :ref:`csv-format`. In particular, each row has to contain the following required fields:
+
+    1. user id: the ID of the user in the dataset;
+    2. item id: the ID of the item in the dataset;
+    3. rating: a score, usually between 1 and 5, that the user gave to the item;
+    4. timestamp: NCR uses the timestamp field to create the logical expressions for learning the model.
+
+    The pre-processing is performed following the parameters settings defined in the data configuration
+    file (see :ref:`config-format` for more information).
+
+    Parameters
+    ----------
+    data_config : :class:`rectorch.configuration.DataConfig`, :obj:`str`: or :obj:`dict`
+        Represents the data pre-processing configurations.
+        When ``type(data_config) == str`` is expected to be the path to the data configuration file.
+        When ``type(data_config) == dict`` is expected to be the data configuration dictionary.
+        In that case a :class:`configuration.DataConfig` object is contextually created.
+    numerize : :obj:`bool` [optional]
+        Whether the user/item ids must be re-mapped, by default :obj:`True`.
+
+    Raises
+    ------
+    :class:`TypeError`
+        Raises when the type of the input parameter is incorrect.
+
+    Attributes
+    ----------
+    cfg : :class:`rectorch.configuration.DataConfig`
+        The :class:`rectorch.configuration.DataConfig` object containing the pre-processing
+        configurations.
+    dataset: :class:`pandas.DataFrame`
+        The entire raw dataset.
+    """
+    def __init__(self, data_config, numerize=True):
         super(NCRDataProcessing, self).__init__(data_config)
         sep = self.cfg.processing.separator if self.cfg.processing.separator else ','
         self.dataset = pd.read_csv(self.cfg.processing.data_path,
@@ -972,9 +1023,14 @@ class NCRDataProcessing(DataProcessing):
                                    header=self.cfg.processing.header,
                                    engine='python')
 
-        #self._prepare_dataset()
+        if numerize:
+            self._prepare_dataset()
 
     def _prepare_dataset(self):
+        """
+        It creates the new mapping for user and item ids and create the dataset structure for Neural Collaborative
+        Reasoning.
+        """
         uhead, ihead = self.dataset.columns.values[:2]
         uids = pd.unique(self.dataset[uhead])
         iids = pd.unique(self.dataset[ihead])
@@ -988,20 +1044,15 @@ class NCRDataProcessing(DataProcessing):
         self.dataset = pd.DataFrame(data=dic_data, columns=cols)
 
     def process(self):
-        """
-        It processes the dataset given the preprocessing parameters. In particular, it filters the user-item
-        interactions using the threshold and orders them by timestamp field (if order is set to True). Ratings equal
+        r"""It processes the dataset given the pre-processing parameters in the config file. In particular, it filters the user-item
+        interactions using the rating_threshold and orders them by timestamp field (if rating_order is set to True). Ratings equal
         to or higher than threshold are converted to 1 (positive feedback), while ratings lower than threshold are
-        converted to 0 (negative feedback). After this procedure, it creates train, validation and test folds as
-        reported in the paper. For doing that, it calls leave_one_out_by_time(). Finally, it adds to the folds the
-        information to generate the logical expressions for the training/testing of the model. For doing so, it calls
-        generate_histories().
-        :param threshold: the threshold used to filter the user-item ratings
-        :param order: a flag indicating whether the dataset has to be ordered by timestamp or not
-        :param leave_n: see leave_out_out_by_time()
-        :param keep_n: see leave_out_out_by_time()
-        :param max_history_length: see generate_histories()
-        :param premise_threshold: see generate_histories()
+        converted to 0 (negative feedback).
+
+        Returns
+        ----------
+        :class:`pandas.DataFrame`
+            The dataset processed according to the pre-processing parameters specified in the config file.
         """
         # filter ratings by threshold
         proc_dataset = self.dataset.copy()
@@ -1014,6 +1065,22 @@ class NCRDataProcessing(DataProcessing):
         return proc_dataset
 
     def split(self, data):
+        r"""
+        It creates train, validation and test folds as reported in the NCR paper. For doing that, it calls
+        :meth:`_leave_one_out_by_time()`. Then, it adds to the folds the information required to generate the logical
+        expressions for the training/testing of the model. For doing so, it calls :meth:`_generate_histories()`. After
+        the splitting is performed a :class:`NCRDataset` is returned.
+
+        Prameters
+        ----------
+        data : :class:`pandas.DataFrame`
+            The processed dataset ordered by timestamp.
+
+        Returns
+        ----------
+        :class:`NCRDataset`
+            The dataset ready to be used for training, validating and testing the NCR model.
+        """
         folds = self._leave_one_out_by_time(data, self.cfg.splitting.leave_n, self.cfg.splitting.keep_n)
         folds = self._generate_histories(folds, self.cfg.processing.max_history_length, self.cfg.processing.premise_threshold)
         return NCRDataset(folds[0], folds[1], folds[2], pd.unique(self.dataset['userID']),
@@ -1021,7 +1088,7 @@ class NCRDataProcessing(DataProcessing):
 
     def _leave_one_out_by_time(self, data, leave_n=1, keep_n=5):
         """
-        It generates train, validation, and test folds of the dataset using the procedure reported in the paper.
+        It generates train, validation, and test folds of the dataset using the procedure reported in the NCR paper.
         The procedure starts with the dataset ordered by timestamp.
         In particular:
             - the first keep_n positive interactions of each user are put in training set;
@@ -1158,33 +1225,49 @@ class NCRDataProcessing(DataProcessing):
 
 
 class NCRDataset(Dataset):
-    """This class manages the dataset of Neural Collaborative Reasoning (NCR).
-    It contains the information about the dataset, such as the number of users and items.
-    It contains utilities, for example a method to generate the user-item sparse matrix.
-    It contains the methods for the preprocessing and split of the dataset.
+    r"""Dataset for training, validating and testing Neural Collaborative Reasoning (NCR). For more information about
+    this approach, please refer to the official paper: <https://arxiv.org/pdf/2005.08129.pdf>`_.
+
+    NCRDataset contains the training, [validation], and test set for performing experiments with NCR. This class extends
+    from :class:`Dataset` and adds some important features useful for NCR.
+
     Parameters
     ----------
-    dataset: this is a pandas dataframe containing the user-item interactions before preprocessing
-    n_users: the number of users in the dataset
-    n_items: the number of items in the dataset
-    proc_dataset: this is a pandas dataframe containing the user-item interactions after preprocessing
+    uids : :obj:`list` of :obj:`int`
+        See :class:`Dataset`.
+    iids : :obj:`list` of :obj:`int`
+        See :class:`Dataset`.
+    train_set : :class:`pandas.DataFrame`
+        The training set data frame.
+    valid_set : :class:`pandas.DataFrame`
+        The validation set data frame.
+    test_set : :class:`pandas.DataFrame`
+        The test set data frame.
+    full_data : :class:`pandas.DataFrame`
+        The entire dataset not splitted into train, validation, and test sets.
+
+    Attributes
+    ----------
+    n_users : :obj:`int`
+        The number of users.
+    n_items : :obj:`int`
+        The number of items.
+    train_set : :class:`pandas.DataFrame`
+        See ``train_set`` parameter.
+    valid_set : :class:`pandas.DataFrame`
+        See ``valid_set`` parameter.
+    test_set : :class:`pandas.DataFrame`
+        See ``test_set`` parameter.
+    dataset : :class:`pandas.DataFrame`
+        See ``full_data`` parameter.
+    user_item_matrix : :class:`scipy.sparse.csr_matrix`
+        The sparse user-item binary matrix containing the user-item interactions of the entire dataset.
     """
 
-    def __init__(self, train_set, valid_set, test_set, uids, iids, full_proc_data):
-        """
-        It initializes a NCRDataset object, computes the user-item sparse matrix and dataset information.
-        :param raw_dataset: pandas dataframe containing the user-item interactions of the dataset. This dataframe must
-        have the following structure:
-            - user id: the id of the user;
-            - item id: the id of the item;
-            - rating: the score gave by the user for the item (usually an integer between 1 and 5);
-            - timestamp: the timestamp related to the moment in which the user reviewed the item.
-        The header of the csv file has to be the following: [userID, itemID, rating, timestamp].
-        In the utils module there are functions that automatically create this structure based on the given dataset.
-        """
+    def __init__(self, train_set, valid_set, test_set, uids, iids, full_data):
         super(NCRDataset, self).__init__(train_set, valid_set, test_set, uids, iids, False)
 
-        self.dataset = full_proc_data
+        self.dataset = full_data
 
         self.n_users = self.dataset[self.dataset.columns.values[0]].nunique()
         self.n_items = self.dataset[self.dataset.columns.values[1]].nunique()
@@ -1195,7 +1278,11 @@ class NCRDataset(Dataset):
         """
         It computes the user-item sparse matrix. Every row is a user and every column is an item.
         A 1 in the matrix means that the user liked the item, while a 0 means that the user disliked the item.
-        :return: the scipy sparse user-item matrix representing the dataset interactions
+
+        Returns
+        -------
+        :class:`scipy.sparse.csr_matrix`
+            The sparse user-item matrix.
         """
         group = self.dataset.groupby("userID")
         rows, cols = [], []

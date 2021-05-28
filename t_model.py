@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     # TODO dare la possibilita di passare il sampler direttamente
 
-    #model.train(dataset, valid_metric='ndcg@5', early_stop=0)
+    model.train(dataset, valid_metric='ndcg@5', early_stop=0)
 
     # model = NCR.load_model("./saved_models/best_ncr_model.json", 'cpu')
 

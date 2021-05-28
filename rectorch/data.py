@@ -972,7 +972,7 @@ class NCRDataProcessing(DataProcessing):
                                    header=self.cfg.processing.header,
                                    engine='python')
 
-        self._prepare_dataset()
+        #self._prepare_dataset()
 
     def _prepare_dataset(self):
         uhead, ihead = self.dataset.columns.values[:2]

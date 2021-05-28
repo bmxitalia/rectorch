@@ -768,8 +768,8 @@ class NCR(NeuralModel):
         it is the only parameters that is taken into account for creating the model.
     """
     def __init__(self,
-                 n_users,
-                 n_items,
+                 n_users=None,
+                 n_items=None,
                  emb_size=64,
                  dropout=0.0,
                  remove_double_not=False,
@@ -778,7 +778,7 @@ class NCR(NeuralModel):
                  device=None,
                  trainer=None):
         if trainer is not None:
-            super(NCR, self).__init__(trainer.net, trainer, trainer.device)
+            super(NCR, self).__init__(trainer.ncr_net, trainer, trainer.device)
         else:
             device = torch.device(device) if device is not None else env.device
             network = NCR_net(n_users, n_items, emb_size, dropout, remove_double_not)

@@ -47,7 +47,7 @@ __email__ = "mak1788@gmail.com"
 __status__ = "Development"
 #
 
-__all__ = ['DataProcessing', 'Dataset', 'NCRDataset']
+__all__ = ['DataProcessing', 'NCRDataProcessing', 'Dataset', 'NCRDataset']
 
 
 class Dataset():
@@ -1103,7 +1103,7 @@ class NCRDataProcessing(DataProcessing):
         For example, if we have logical expressions: a -> b, a ∧ b -> c and a ∧ b ∧ c -> d, and the parameter
         premise_threshold is set to 2, the first two expressions will be removed from the dataset.
         """
-        # TODO insert an assert to check the value of the parameter premise_threshold (read doc)
+        assert premise_threshold < max_hist_length, "premise_threshold cannot be equal to or higher than max_hist_length"
         history_dict = {}  # it contains for each user the list of all the items he has seen
         feedback_dict = {}  # it contains for each user the list of feedbacks he gave to the items he has seen
         for df in folds:

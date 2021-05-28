@@ -875,6 +875,7 @@ class NCR(NeuralModel):
         except KeyboardInterrupt:
             env.logger.warning('Handled KeyboardInterrupt: exiting from training early')
 
+
     def predict(self, batch_data):
         """Performs the prediction on the given batch using the trained NCR network. It takes as input a batch of
         logical expressions and it returns the predictions for the positive and negative logical expressions in the

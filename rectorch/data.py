@@ -98,18 +98,19 @@ class Dataset():
     test_set : :class:`pandas.DataFrame` or tuple of :class:`pandas.DataFrame`
         See ``test_set`` parameter.
     """
+
     def __init__(self, train_set, valid_set, test_set, uids, iids, numerize=True):
         assert isinstance(train_set, DataFrame), "train_set must be a DataFrame"
         if valid_set is not None:
-            assert isinstance(valid_set, (DataFrame, tuple, list, np.ndarray)),\
+            assert isinstance(valid_set, (DataFrame, tuple, list, np.ndarray)), \
                 "valid_set must be a DataFrame or a tuple/list/array of DataFrames"
-        assert isinstance(test_set, (DataFrame, tuple, list, np.ndarray)),\
+        assert isinstance(test_set, (DataFrame, tuple, list, np.ndarray)), \
             "test_set must be a DataFrame or a tuple of DataFrames"
 
         if not isinstance(valid_set, DataFrame) and valid_set is not None:
             assert len(valid_set) == 2, "valid_set must be a sequence of DataFrames of length 2"
             if valid_set[0] is not None:
-                assert isinstance(valid_set[0], DataFrame) and isinstance(valid_set[1], DataFrame),\
+                assert isinstance(valid_set[0], DataFrame) and isinstance(valid_set[1], DataFrame), \
                     "valid_set must be a sequence of DataFrames"
             else:
                 valid_set = None
@@ -320,9 +321,9 @@ class Dataset():
     def _to_dict(self, data, binarize):
         grouped = data.groupby(by="uid")
         if binarize:
-            return {idx : list(group["iid"]) for idx, group in grouped}
+            return {idx: list(group["iid"]) for idx, group in grouped}
         else:
-            return {idx : zip(list(gr["iid"]), list(gr["rating"])) for idx, gr in grouped}
+            return {idx: zip(list(gr["iid"]), list(gr["rating"])) for idx, gr in grouped}
 
     def to_array(self, binarize=True, cold_users=True):
         r"""Return the dataset as a numpy array.
@@ -514,7 +515,7 @@ class Dataset():
 
     def _df_to_tensor(self, data, binarize=True):
         start_idx = data['uid'].min()
-        idx = torch.LongTensor([list(data['uid']- start_idx), list(data['iid'])])
+        idx = torch.LongTensor([list(data['uid'] - start_idx), list(data['iid'])])
         n_tr_users = data['uid'].max() - start_idx + 1
         values = np.ones(len(data)) if binarize else data[data.columns.values[2]]
         v = torch.FloatTensor(values)
@@ -550,16 +551,101 @@ class Dataset():
         return (tensor_tr.to_dense(), tensor_te.to_dense())
 
     def __str__(self):
-        return "Dataset(n_users=%d, n_items=%d, n_ratings=%d)" %(self.n_users,
-                                                                 self.n_items,
-                                                                 self.n_ratings)
+        return "Dataset(n_users=%d, n_items=%d, n_ratings=%d)" % (self.n_users,
+                                                                  self.n_items,
+                                                                  self.n_ratings)
 
     def __repr__(self):
         return str(self)
 
 
 class DataProcessing():
-    r"""Class that manages the pre-processing of raw data sets.
+    r"""Base class that manages the pre-processing of raw data sets.
+
+    Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
+    files where each row represents a rating. More details about the allowed format are described
+    in :ref:`csv-format`. The pre-processing is performed following the parameters settings defined
+    in the data configuration file (see :ref:`config-format` for more information).
+
+    Parameters
+    ----------
+    data_config : :class:`rectorch.configuration.DataConfig`, :obj:`str`: or :obj:`dict`
+        Represents the data pre-processing configurations.
+        When ``type(data_config) == str`` is expected to be the path to the data configuration file.
+        When ``type(data_config) == dict`` is expected to be the data configuration dictionary.
+        In that case a :class:`configuration.DataConfig` object is contextually created.
+
+    Raises
+    ------
+    :class:`TypeError`
+        Raises when the type of the input parameter is incorrect.
+
+    Attributes
+    ----------
+    cfg : :class:`rectorch.configuration.DataConfig`
+        The :class:`rectorch.configuration.DataConfig` object containing the pre-processing
+        configurations.
+
+    Notes
+    -----
+    Each new data processor must extend this base class implementing all the abstract
+    methods, in particular :meth:`DataProcessing.process` and :meth:`DataProcessing.split`.
+    """
+
+    def __init__(self, data_config):
+        if isinstance(data_config, DataConfig):
+            self.cfg = data_config
+        elif isinstance(data_config, (str, dict)):
+            self.cfg = DataConfig(data_config)
+        else:
+            raise TypeError("'data_config' must be of type 'DataConfig', 'dict', or 'str'.")
+
+    def process(self):
+        """Process the data set raw file.
+
+        The pre-processing relies on the configurations provided in the data configurations
+        :attr:`cfg`. The full pre-processing follows a specific pipeline (the meaning of
+        each configuration parameter is defined in :ref:`config-format`).
+
+        Returns
+        -------
+        :class:`pandas.DataFrame`
+            The pre-processed dataset.
+        """
+        raise NotImplementedError
+
+    def split(self, data):
+        r"""Split the data set.
+
+        The splitting relies on the configurations provided in the data configurations
+        :attr:`cfg`.
+
+        Parameters
+        ----------
+        data : :class:`pandas.DataFrame`
+            The dataset to split.
+
+        Returns
+        -------
+        :class:`Dataset` or :obj:`list` of :class:`Dataset`
+            The splitted dataset(s).
+        """
+        raise NotImplementedError
+
+    def process_and_split(self):
+        r"""Process and split the dataset.
+        It is the equivalent of calling ``split(process())``.
+
+        Returns
+        -------
+        :class:`Dataset`
+            The processed and splitted dataset.
+        """
+        return self.split(self.process())
+
+
+class StandardDataProcessing(DataProcessing):
+    r"""Class that manages the standard pre-processing of raw data sets.
 
     Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
     files where each row represents a rating. More details about the allowed format are described
@@ -587,12 +673,7 @@ class DataProcessing():
     """
 
     def __init__(self, data_config):
-        if isinstance(data_config, DataConfig):
-            self.cfg = data_config
-        elif isinstance(data_config, (str, dict)):
-            self.cfg = DataConfig(data_config)
-        else:
-            raise TypeError("'data_config' must be of type 'DataConfig', 'dict', or 'str'.")
+        super(StandardDataProcessing, self).__init__(data_config)
 
     def process(self):
         r"""Process the data set raw file.
@@ -671,18 +752,6 @@ class DataProcessing():
         else:
             return Dataset(*splitted)
 
-    def process_and_split(self):
-        r"""Process and split the dataset.
-
-        It is the equivalent of calling ``split(process())``.
-
-        Returns
-        -------
-        :class:`Dataset`
-            The processed and splitted dataset.
-        """
-        return self.split(self.process())
-
     def _split(self,
                data,
                split_type,
@@ -736,7 +805,6 @@ class DataProcessing():
 
         return data
 
-
     def _horizontal_split(self, data, valid_size, test_size, sort_by=None, shuffle=True, seed=None):
         assert 0 <= valid_size <= 1, "Invalid validation set size"
         assert 0 < test_size <= 1, "Invalid test set size"
@@ -762,9 +830,9 @@ class DataProcessing():
                 else:
                     uval_sz = 0
                 ute_sz = max(1, int(n_items_u * test_size)) if test_size < 1 else 1
-                tr_list.append(group[:-uval_sz-ute_sz])
+                tr_list.append(group[:-uval_sz - ute_sz])
                 if uval_sz > 0:
-                    val_list.append(group[-uval_sz-ute_sz:-ute_sz])
+                    val_list.append(group[-uval_sz - ute_sz:-ute_sz])
                 te_list.append(group[-ute_sz:])
             else:
                 tr_list.append(group)
@@ -788,7 +856,6 @@ class DataProcessing():
             env.logger.warning("Skipped %d ratings in test set.", tcnt - len(data_te))
 
         return data_tr, data_val, data_te, unique_uid, unique_iid
-
 
     def _vertical_split(self,
                         data,
@@ -895,72 +962,32 @@ class DataProcessing():
         data_te = pd.concat(te_list)
         return data_tr, data_te
 
-class NCRDataset():
-    # TODO scrivere che il dataset vuole il numero di utenti e oggetti tra 0 e numero utenti/oggetti
-    """This class manages the dataset of Neural Collaborative Reasoning (NCR).
-    It contains the information about the dataset, such as the number of users and items.
-    It contains utilities, for example a method to generate the user-item sparse matrix.
-    It contains the methods for the preprocessing and split of the dataset.
-    Parameters
-    ----------
-    dataset: this is a pandas dataframe containing the user-item interactions before preprocessing
-    n_users: the number of users in the dataset
-    n_items: the number of items in the dataset
-    proc_dataset: this is a pandas dataframe containing the user-item interactions after preprocessing
-    """
 
+class NCRDataProcessing(DataProcessing):
     def __init__(self, data_config):
-        """
-        It initializes a NCRDataset object, computes the user-item sparse matrix and dataset information.
-        :param raw_dataset: pandas dataframe containing the user-item interactions of the dataset. This dataframe must
-        have the following structure:
-            - user id: the id of the user;
-            - item id: the id of the item;
-            - rating: the score gave by the user for the item (usually an integer between 1 and 5);
-            - timestamp: the timestamp related to the moment in which the user reviewed the item.
-        The header of the csv file has to be the following: [userID, itemID, rating, timestamp].
-        In the utils module there are functions that automatically create this structure based on the given dataset.
-        """
-        if isinstance(data_config, DataConfig):
-            self.cfg = data_config
-        elif isinstance(data_config, (str, dict)):
-            self.cfg = DataConfig(data_config)
-        else:
-            raise TypeError("'data_config' must be of type 'DataConfig', 'dict', or 'str'.")
-
+        super(NCRDataProcessing, self).__init__(data_config)
         sep = self.cfg.processing.separator if self.cfg.processing.separator else ','
         self.dataset = pd.read_csv(self.cfg.processing.data_path,
                                    sep=sep,
                                    header=self.cfg.processing.header,
                                    engine='python')
 
-        self.get_data_info()
+        self._prepare_dataset()
 
-    def get_data_info(self):
-        self.n_users = self.dataset['userID'].nunique()
-        self.n_items = self.dataset['itemID'].nunique()
+    def _prepare_dataset(self):
+        uhead, ihead = self.dataset.columns.values[:2]
+        uids = pd.unique(self.dataset[uhead])
+        iids = pd.unique(self.dataset[ihead])
+        u2id = dict((uid, i) for (i, uid) in enumerate(uids))
+        i2id = dict((iid, i) for (i, iid) in enumerate(iids))
+        uid = self.dataset[uhead].apply(lambda x: u2id[x])
+        iid = self.dataset[ihead].apply(lambda x: i2id[x])
+        dic_data = {'userID': uid, 'itemID': iid, 'rating': pd.to_numeric(self.dataset[self.dataset.columns.values[2]]),
+                    'timestamp': self.dataset[self.dataset.columns.values[3]].astype(int)}
+        cols = ['userID', 'itemID', 'rating', 'timestamp']
+        self.dataset = pd.DataFrame(data=dic_data, columns=cols)
 
-        self.user_item_matrix = self.compute_sparse_matrix()
-
-    def compute_sparse_matrix(self):
-        """
-        It computes the user-item sparse matrix. Every row is a user and every column is an item.
-        A 1 in the matrix means that the user liked the item, while a 0 means that the user disliked the item.
-        :return: the scipy sparse user-item matrix representing the dataset interactions
-        """
-        group = self.dataset.groupby("userID")
-        rows, cols = [], []
-        values = []
-        for i, (_, g) in enumerate(group):
-            u = list(g['userID'])[0]  # user id
-            items = set(list(g['itemID']))  # items on the history
-            rows.extend([u] * len(items))
-            cols.extend(list(items))
-            values.extend([1] * len(items))
-        return csr_matrix((values, (rows, cols)), (self.n_users, self.n_items))
-
-    def process_data(self):
-        # TODO remove the parameters of the method. Just took there to see the default values
+    def process(self):
         """
         It processes the dataset given the preprocessing parameters. In particular, it filters the user-item
         interactions using the threshold and orders them by timestamp field (if order is set to True). Ratings equal
@@ -977,18 +1004,22 @@ class NCRDataset():
         :param premise_threshold: see generate_histories()
         """
         # filter ratings by threshold
-        self.proc_dataset = self.dataset.copy()
-        self.proc_dataset['rating'][self.proc_dataset['rating'] < self.cfg.processing.rating_threshold] = 0
-        self.proc_dataset['rating'][self.proc_dataset['rating'] >= self.cfg.processing.rating_threshold] = 1
+        proc_dataset = self.dataset.copy()
+        proc_dataset['rating'][proc_dataset['rating'] < self.cfg.processing.rating_threshold] = 0
+        proc_dataset['rating'][proc_dataset['rating'] >= self.cfg.processing.rating_threshold] = 1
 
         if self.cfg.processing.rating_order:
-            self.proc_dataset = self.proc_dataset.sort_values(by=['timestamp', 'userID', 'itemID']).reset_index(drop=True)
+            proc_dataset = proc_dataset.sort_values(by=['timestamp', 'userID', 'itemID']).reset_index(drop=True)
 
-        self.leave_one_out_by_time(self.cfg.splitting.leave_n, self.cfg.splitting.keep_n)
-        self.generate_histories(self.cfg.processing.max_history_length, self.cfg.processing.premise_threshold)
+        return proc_dataset
 
-    # TODO si potrebbe separare lo split dal process come da Mirko, mettendo le due cose separate
-    def leave_one_out_by_time(self, leave_n=1, keep_n=5):
+    def split(self, data):
+        folds = self._leave_one_out_by_time(data, self.cfg.splitting.leave_n, self.cfg.splitting.keep_n)
+        folds = self._generate_histories(folds, self.cfg.processing.max_history_length, self.cfg.processing.premise_threshold)
+        return NCRDataset(folds[0], folds[1], folds[2], pd.unique(self.dataset['userID']),
+                          pd.unique(self.dataset['itemID']), self.dataset)
+
+    def _leave_one_out_by_time(self, data, leave_n=1, keep_n=5):
         """
         It generates train, validation, and test folds of the dataset using the procedure reported in the paper.
         The procedure starts with the dataset ordered by timestamp.
@@ -1002,7 +1033,7 @@ class NCRDataset():
 
         train_set = []
         # generate training set by looking for the first keep_n POSITIVE interactions
-        processed_data = self.proc_dataset.copy()
+        processed_data = data.copy()
         for uid, group in processed_data.groupby('userID'):  # group by uid
             found, found_idx = 0, -1
             for idx in group.index:
@@ -1048,10 +1079,12 @@ class NCRDataset():
         processed_data = processed_data.drop(validation_set.index)
 
         # The remaining data (after removing validation and test) are all in training data
-        self.train_set = pd.concat([train_set, processed_data])
-        self.valid_set, self.test_set = validation_set.reset_index(drop=True), test_set.reset_index(drop=True)
+        train_set = pd.concat([train_set, processed_data])
+        valid_set, test_set = validation_set.reset_index(drop=True), test_set.reset_index(drop=True)
 
-    def generate_histories(self, max_hist_length=5, premise_threshold=0):
+        return train_set, valid_set, test_set
+
+    def _generate_histories(self, folds, max_hist_length=5, premise_threshold=0):
         """
         Generate history interaction sequence (items at the left side of implication) for each interaction in train,
         validation, and test sets, and appends it to the dataframe.
@@ -1071,13 +1104,13 @@ class NCRDataset():
         premise_threshold is set to 2, the first two expressions will be removed from the dataset.
         """
         # TODO insert an assert to check the value of the parameter premise_threshold (read doc)
-        history_dict = {} # it contains for each user the list of all the items he has seen
-        feedback_dict = {} # it contains for each user the list of feedbacks he gave to the items he has seen
-        for df in [self.train_set, self.valid_set, self.test_set]:
-            history = [] # each element of this list is a list containing the history items of a single interaction
-            fb = [] # each element of this list is a list containing the feedback for the history items of a
+        history_dict = {}  # it contains for each user the list of all the items he has seen
+        feedback_dict = {}  # it contains for each user the list of feedbacks he gave to the items he has seen
+        for df in folds:
+            history = []  # each element of this list is a list containing the history items of a single interaction
+            fb = []  # each element of this list is a list containing the feedback for the history items of a
             # single interaction
-            hist_len = [] # each element of this list indicates the number of history items of a single interaction
+            hist_len = []  # each element of this list indicates the number of history items of a single interaction
             uids, iids, feedbacks = df['userID'].tolist(), df['itemID'].tolist(), df['rating'].tolist()
             for i, uid in enumerate(uids):
                 iid, feedback = iids[i], feedbacks[i]
@@ -1087,9 +1120,11 @@ class NCRDataset():
                     feedback_dict[uid] = []
 
                 # list containing the history for current interaction
-                tmp_his = copy.deepcopy(history_dict[uid]) if max_hist_length == 0 else history_dict[uid][-max_hist_length:]
+                tmp_his = copy.deepcopy(history_dict[uid]) if max_hist_length == 0 else history_dict[uid][
+                                                                                        -max_hist_length:]
                 # list containing the feedbacks for the history of current interaction
-                fb_his = copy.deepcopy(feedback_dict[uid]) if max_hist_length == 0 else feedback_dict[uid][-max_hist_length:]
+                fb_his = copy.deepcopy(feedback_dict[uid]) if max_hist_length == 0 else feedback_dict[uid][
+                                                                                        -max_hist_length:]
 
                 history.append(tmp_his)
                 fb.append(fb_his)
@@ -1106,23 +1141,69 @@ class NCRDataset():
         # we remove from the dataset all the logical expressions with a number of premises equal to or lower than
         # premise_threshold
         if premise_threshold != 0:
-            self.train_set = self.train_set[self.train_set.history_length > premise_threshold]
-            self.valid_set = self.valid_set[self.valid_set.history_length > premise_threshold]
-            self.test_set = self.test_set[self.test_set.history_length > premise_threshold]
+            folds = [df[df.history_length > premise_threshold] for df in folds]
 
-        self.clean_data()
+        return self._clean_data(folds)
 
-
-    def clean_data(self):
+    def _clean_data(self, folds):
         """
         It removes all the interactions for which is not possible to construct a logical expression.
         In particular, it removes from train, validation and test sets those interactions (items at the right side of
         implication) that have a negative feedback. In fact, we want to predict only the positive items.
         Then, it removes all the interactions that have an empty history (the left side of implication would be empty).
         """
-        self.train_set = self.train_set[self.train_set['rating'] > 0].reset_index(drop=True)
-        self.train_set = self.train_set[self.train_set['history_feedback'].map(len) > 0].reset_index(drop=True)
-        self.valid_set = self.valid_set[self.valid_set['rating'] > 0].reset_index(drop=True)
-        self.valid_set = self.valid_set[self.valid_set['history_feedback'].map(len) > 0].reset_index(drop=True)
-        self.test_set = self.test_set[self.test_set['rating'] > 0].reset_index(drop=True)
-        self.test_set = self.test_set[self.test_set['history_feedback'].map(len) > 0].reset_index(drop=True)
+        folds = [df[df['rating'] > 0].reset_index(drop=True) for df in folds]
+        folds = [df[df['history_feedback'].map(len) > 0].reset_index(drop=True) for df in folds]
+        return folds
+
+
+class NCRDataset(Dataset):
+    """This class manages the dataset of Neural Collaborative Reasoning (NCR).
+    It contains the information about the dataset, such as the number of users and items.
+    It contains utilities, for example a method to generate the user-item sparse matrix.
+    It contains the methods for the preprocessing and split of the dataset.
+    Parameters
+    ----------
+    dataset: this is a pandas dataframe containing the user-item interactions before preprocessing
+    n_users: the number of users in the dataset
+    n_items: the number of items in the dataset
+    proc_dataset: this is a pandas dataframe containing the user-item interactions after preprocessing
+    """
+
+    def __init__(self, train_set, valid_set, test_set, uids, iids, full_proc_data):
+        """
+        It initializes a NCRDataset object, computes the user-item sparse matrix and dataset information.
+        :param raw_dataset: pandas dataframe containing the user-item interactions of the dataset. This dataframe must
+        have the following structure:
+            - user id: the id of the user;
+            - item id: the id of the item;
+            - rating: the score gave by the user for the item (usually an integer between 1 and 5);
+            - timestamp: the timestamp related to the moment in which the user reviewed the item.
+        The header of the csv file has to be the following: [userID, itemID, rating, timestamp].
+        In the utils module there are functions that automatically create this structure based on the given dataset.
+        """
+        super(NCRDataset, self).__init__(train_set, valid_set, test_set, uids, iids, False)
+
+        self.dataset = full_proc_data
+
+        self.n_users = self.dataset[self.dataset.columns.values[0]].nunique()
+        self.n_items = self.dataset[self.dataset.columns.values[1]].nunique()
+
+        self.user_item_matrix = self._compute_sparse_matrix()
+
+    def _compute_sparse_matrix(self):
+        """
+        It computes the user-item sparse matrix. Every row is a user and every column is an item.
+        A 1 in the matrix means that the user liked the item, while a 0 means that the user disliked the item.
+        :return: the scipy sparse user-item matrix representing the dataset interactions
+        """
+        group = self.dataset.groupby("userID")
+        rows, cols = [], []
+        values = []
+        for i, (_, g) in enumerate(group):
+            u = list(g['userID'])[0]  # user id
+            items = set(list(g['itemID']))  # items on the history
+            rows.extend([u] * len(items))
+            cols.extend(list(items))
+            values.extend([1] * len(items))
+        return csr_matrix((values, (rows, cols)), (self.n_users, self.n_items))

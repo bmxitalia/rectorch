@@ -5,7 +5,7 @@ from rectorch.models.nn.ncr import NCR
 
 if __name__ == '__main__':
     env.init(device="cuda:0")
-    set_seed(2022)
+    set_seed(2021)
     data_cfg = get_data_cfg('ml100k_ncr')
     processor = NCRDataProcessing(data_cfg)
     dataset = processor.process_and_split()

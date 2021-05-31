@@ -1,32 +1,32 @@
-r"""A Generic Collaborative Filtering Framework based on Generative Adversarial Networks.
+r"""Neural Collaborative Reasoning (NCR): a Neural-Symbolic approach for top-N recommendation.
 
-This recommender system is based on GAN where the (conditioned) generator aims at generating
-the ratings of users while the discriminiator tries to discriminate between genuine users
-profile and generated ones.
-The two networks try to optimize the followng loss functions:
+This recommender system is based on Neural-Symbolic Integration, a novel branch of Artificial Intelligence that aims at
+integrating the robustness of deep learning with the expressiveness of Logic to merge the advantages of both paradigms.
+In particular, in NCR each user-item interaction is represented through a propositional variable, while the user's
+historical information is represented through a logical expression. For example, the propositional variable :math:`u_i`
+means "user :math:`u` likes item :math:`i`", while the logical expression :math:`u_1 \land u_2 \land \not \u_3 \implies
+\u_4` means "the fact that user :math:`u` liked item 1 and item 2, and disliked item 3 implies that the user will like
+item 4". In NCR, the user's historical information is used to generate these types of rules.
 
-- Discriminator (D):
-    :math:`J^{D}=-\sum_{u}\left(\log D(\mathbf{r}_{u} | \
-    \mathbf{c}_{u})+\log (1-D(\hat{\mathbf{r}}_{u}\
-    \odot(\mathbf{e}_{u}+\mathbf{k}_{u}) | \mathbf{c}_{u}))\right)`
-- Generator (G):
-    :math:`J^{G}=\sum_{u}\left(\log (1-D(\hat{\mathbf{r}}_{u}\
-    \odot(\mathbf{e}_{u}+\mathbf{k}_{u}) | \mathbf{c}_{u}))+\
-    \alpha \cdot \sum_{j}(r_{uj}-\hat{r}_{uj})^{2}\right)`
+Logical expressions and propositional variables are then mapped by a neural network into a continuous latent space where
+some form of logical regularization is performed. In particular, the neural network learns logical operations such as
+AND (∧), OR (∨) and NOT (¬) as neural modules for implication reasoning (→). In this way, logical expressions can be
+equivalently organized as neural networks, so that logical reasoning and prediction can be conducted in a
+continuous space. Specifically, the score given by the recommender to a particular item is given by the cosine
+similarity between the target logical expression (it has the target item at the right side of the implication) and a
+fixed TRUE vector. This TRUE vector is a representative of the logical true value in the latent space.
 
-where :math:`\mathbf{c}_u` is the condition vector, :math:`\mathbf{k}_u` is an n-dimensional
-indicator vector such that :math:`k_{uj} = 1` iff
-*j* is a negative sampled item, :math:`\hat{\mathbf{r}}_u` is a fake user profile, and
-:math:`\mathbf{e}_u` is the masking vector to remove the non-rated items.
-For more details please refer to the original paper [CFGAN]_.
+In particular, this model learns the truth value of propositional variables and logical expressions by minimizing a
+pair-wise loss function and by regularizing the latent space using logical regularizers.
+
+For more information about NCR it is kindly suggested to refer to the original paper (`link
+<https://arxiv.org/abs/2005.08129>`_).
 
 References
 ----------
-.. [CFGAN] Dong-Kyu Chae, Jin-Soo Kang, Sang-Wook Kim, and Jung-Tae Lee. 2018.
-   CFGAN: A Generic Collaborative Filtering Framework based on Generative Adversarial Networks.
-   In Proceedings of the 27th ACM International Conference on Information and Knowledge
-   Management (CIKM '18). Association for Computing Machinery, New York, NY, USA, 137–146.
-   DOI: https://doi.org/10.1145/3269206.3271743
+.. [NCR] Chen Hanxiong, Shi Shaoyun, Li Yunqi, and Zhang Yongfeng. 2020.
+   Neural Collaborative Reasoning.
+   arXiv pre-print: https://arxiv.org/abs/2005.08129
 """
 import time
 import random
@@ -38,7 +38,7 @@ from torch.nn.init import normal_ as normal_init
 from rectorch import env, set_seed
 from rectorch.samplers import Sampler
 from rectorch.models.nn import NeuralNet, TorchNNTrainer, NeuralModel
-from rectorch.evaluation import logic_evaluate
+from rectorch.evaluation import ncr_evaluate
 from rectorch.validation import ValidFunc
 from rectorch.utils import init_optimizer
 
@@ -56,40 +56,83 @@ __all__ = ["NCR_net", "NCR_Sampler", "NCR_trainer", "NCR"]
 
 
 class NCR_net(NeuralNet):
-    r"""Generator network of the CFGAN model.
+    r"""Neural network architecture of the NCR model.
 
-    The generator newtork of CFGAN is a simple Multi Layer perceptron. Each internal layer is
-    fully connected and ReLU activated. The output layer insted has a sigmoid as activation
-    funciton. See [CFGAN]_ for a full description.
+    The NCR architecture is composed of the following neural modules (composed of two fully connected layers):
+
+    1. Encoder: it maps the concatenation of a user embedding and an item embedding into a so-called event vector. An
+    event vector in an embedding of the same size of user and item embeddings which represents the user-item pair;
+    2. AND: it maps the concatenation of two event vector in a new event vector which represents the logical conjunction
+    of the two input vectors in the logical latent space;
+    3. OR: it maps the concatenation of two event vector in a new event vector which represents the logical disjunction
+    of the two input vectors in the logical latent space;
+    4. NOT: it maps an event vector in a new event vector which represents the logical negationv of the input vector in
+    the logical latent space.
+
+    See [NCR]_ for a full description.
 
     Parameters
     ----------
-    layers_dim : :obj:`list` of :obj:`int`
-        The dimension of the layers of the network ordered from the input to the output.
+    n_users : :obj:`int`
+        The number of users in the dataset.
+    n_items : :obj:`int`
+        The number of items in the dataset.
+    emb_size : :obj:`int` [optional]
+        The size of the embeddings in the latent space, by default 64.
+    dropout : :obj:`float` [optional]
+        The percentage of units that have to be shut down in dropout layers. There is a dropout layer in each neural
+        module of the architecture, by default 0.0.
+    remove_double_not : :obj:`bool` [optional]
+        Flag indicating whether the double negation has to be removed during the construction of logical expressions,
+        by default `False`.
+        If this flag is se to `True` then ¬¬x will be converted to x. In the original paper, researchers preferred to
+        do not remove double negations in such a way to make the model more robust by passing through the NOT module more
+        times.
 
     Attributes
     ----------
-    layers_dim : :obj:`list` of :obj:`int`
-        See the :attr:`layers_dim` parameter.
-    input_dim : :obj:`int`
-        The dimension of the output of the generator, i.e., the input of the discriminator.
-    latent_dim : :obj:`int`
-        The dimension of the latent space, i.e., the dimension of the input of the generator.
+    n_users : :obj:`int`
+        See the :attr:`n_users` parameter.
+    n_items : :obj:`int`
+        See the :attr:`n_items` parameter.
+    emb_size : :obj:`int`
+        See the :attr:`emb_size` parameter.
+    remove_double_not : :obj:`bool`
+        See the :attr:`remove_double_not` parameter.
+    item_embeddings : :class:`torch.nn.Embedding`
+        The embeddings of all the items of the dataset.
+    user_embeddings : :class:`torch.nn.Embedding`
+        The embeddings of all the users of the dataset.
+    true_vector : :class:`torch.nn.Parameter`
+        The embedding of the fixed TRUE vector.
+    not_layer_1 : :class:`torch.nn.Linear`
+        The first layer of the NOT neural module.
+    not_layer_2 : :class:`torch.nn.Linear`
+        The second layer of the NOT neural module.
+    and_layer_1 : :class:`torch.nn.Linear`
+        The first layer of the AND neural module.
+    and_layer_2 : :class:`torch.nn.Linear`
+        The second layer of the AND neural module.
+    or_layer_1 : :class:`torch.nn.Linear`
+        The first layer of the OR neural module.
+    or_layer_2 : :class:`torch.nn.Linear`
+        The second layer of the OR neural module.
+    encoder_layer_1 : :class:`torch.nn.Linear`
+        The first layer of the encoder neural module.
+    encoder_layer_2 : :class:`torch.nn.Linear`
+        The second layer of the encoder neural module.
 
     References
     ----------
-    .. [CFGAN] Dong-Kyu Chae, Jin-Soo Kang, Sang-Wook Kim, and Jung-Tae Lee. 2018.
-       CFGAN: A Generic Collaborative Filtering Framework based on Generative Adversarial Networks.
-       In Proceedings of the 27th ACM International Conference on Information and Knowledge
-       Management (CIKM ’18). Association for Computing Machinery, New York, NY, USA, 137–146.
-       DOI: https://doi.org/10.1145/3269206.3271743
+    .. [NCR] Chen Hanxiong, Shi Shaoyun, Li Yunqi, and Zhang Yongfeng. 2020.
+       Neural Collaborative Reasoning.
+       arXiv pre-print: https://arxiv.org/abs/2005.08129
     """
     def __init__(self, n_users, n_items, emb_size=64, dropout=0.0, remove_double_not=False):
         super(NCR_net, self).__init__()
         self.n_users = n_users
         self.n_items = n_items
         self.emb_size = emb_size
-        self.dropout = dropout
         # initialization of user and item embeddings
         self.item_embeddings = torch.nn.Embedding(self.n_items, self.emb_size)
         self.user_embeddings = torch.nn.Embedding(self.n_users, self.emb_size)
@@ -115,18 +158,26 @@ class NCR_net(NeuralNet):
         # second layer of encoder
         self.encoder_layer_2 = torch.nn.Linear(self.emb_size, self.emb_size)
         # dropout layer
-        self.dropout_layer = torch.nn.Dropout(self.dropout)
+        self.dropout_layer = torch.nn.Dropout(dropout)
         # initialize the weights of the network
         self.init_weights()
         self.remove_double_not = remove_double_not
 
-
     def logic_not(self, vector):
-        """
-        This represents the NOT neural module. It takes in input an event vector and returns a new event vector that
-        is the negation of the input event vector.
-        :param vector: the input event vector.
-        :return: the event vector that is the negation of the input event vector.
+        r"""It represents the NOT neural module of the NCR architecture.
+
+        It takes as input an event vector and returns a new event vector that is the logical negation of the input event
+        vector in the logical latent space.
+
+        Parameters
+        ----------
+        vector : :class:`torch.Tensor`
+            The input event vector.
+
+        Returns
+        ----------
+        :class:`torch.Tensor`
+            The logical negation of the input event vector in the logical latent space.
         """
         # ReLU is the activation function selected in the paper
         vector = F.relu(self.not_layer_1(vector))
@@ -135,15 +186,25 @@ class NCR_net(NeuralNet):
         out = self.not_layer_2(vector)
         return out
 
-
     def logic_or(self, vector1, vector2, dim=1):
-        """
-        This represents the OR neural module. It takes in input two event vectors and returns a new event vector that is
-        the logical disjunction of the two input event vectors.
-        :param vector1: the first input event vector.
-        :param vector2: the second input event vector.
-        :param dim: the dimension for the concatenation of the two input event vectors.
-        :return: the event vector that is the logical disjunction of the two input event vectors.
+        r"""It represents the OR neural module of the NCR architecture.
+
+        It takes as input two event vectors and returns a new event vector that is the logical disjunction of the two
+        input event vectors in the logical latent space.
+
+        Parameters
+        ----------
+        vector1 : :class:`torch.Tensor`
+            The first input event vector.
+        vector2 : :class:`torch.Tensor`
+            The second input event vector.
+        dim : :obj:`int` [optional]
+            The dimension for the concatenation of the two input event vectors, by default 1.
+
+        Returns
+        ----------
+        :class:`torch.Tensor`
+            The event vector that is the logical disjunction of the two input event vectors in the logical latent space.
         """
         vector = torch.cat((vector1, vector2), dim)
         vector = F.relu(self.or_layer_1(vector))
@@ -152,15 +213,25 @@ class NCR_net(NeuralNet):
         out = self.or_layer_2(vector)
         return out
 
-
     def logic_and(self, vector1, vector2, dim=1):
-        """
-        This represents the AND neural module. It takes in input two event vectors and returns a new event vector that
-        is the logical conjunction of the two input event vectors.
-        :param vector1: the first input event vector.
-        :param vector2: the second input event vector.
-        :param dim: the dimension for the concatenation of the two input event vectors.
-        :return: the event vector that is the logical conjunction of the two input event vectors.
+        r"""It represents the AND neural module of the NCR architecture.
+
+        It takes as input two event vectors and returns a new event vector that is the logical conjunction of the two
+        input event vectors in the logical latent space.
+
+        Parameters
+        ----------
+        vector1 : :class:`torch.Tensor`
+            The first input event vector.
+        vector2 : :class:`torch.Tensor`
+            The second input event vector.
+        dim : :obj:`int` [optional]
+            The dimension for the concatenation of the two input event vectors, by default 1.
+
+        Returns
+        ----------
+        :class:`torch.Tensor`
+            The event vector that is the logical conjunction of the two input event vectors in the logical latent space.
         """
         vector = torch.cat((vector1, vector2), dim)
         vector = F.relu(self.and_layer_1(vector))
@@ -169,14 +240,22 @@ class NCR_net(NeuralNet):
         out = self.and_layer_2(vector)
         return out
 
-
     def encoder(self, ui_vector):
-        """
-        This represents the encoder network of the paper. It takes in input the concatenation of two embeddings, a user
-        embedding and an item embedding respectively, and it converts it into an event vector. The event vector is an
-        embedding that captures the relationship between a user and an item.
-        :param ui_vector: the embedding that is the concatenation of a user embedding with an item embedding.
-        :return: the event vector that represents the user-item pair in input.
+        r"""It represents the encoder network of the NCR architecture.
+
+        It takes as input the concatenation of two embeddings, a user embedding and an item embedding respectively,
+        and it converts it into an event vector. The event vector is an embedding that captures the relationship between
+        a user and an item.
+
+        Parameters
+        ----------
+        ui_vector : :class:`torch.Tensor`
+            The concatenation of a user embedding with an item embedding.
+
+        Returns
+        ----------
+        :class:`torch.Tensor`
+            The event vector that represents the user-item pair given in input.
         """
         event_vector = F.relu(self.encoder_layer_1(ui_vector))
         if self.training:
@@ -184,47 +263,69 @@ class NCR_net(NeuralNet):
         event_vector = self.encoder_layer_2(event_vector)
         return event_vector
 
-
     def forward(self, batch_data):
-        """
+        r"""Apply the NCR network to the input.
+
         This is the function that performs the forward phase of the neural network. In this particular network, the
         forward phase is really complex. First of all, each element in the batch represents a user-item interaction and
         comes with the following information:
             - user id: this is the id of the user.
             - item id: this is the id of the item. This is the positive item we want to predict, namely the item at the
             right side of the implication of the logical expression.
-            - history: this is a numpy array that forms the history sequence of the user-item interaction. It could be
-            an array of up to 5 elements. The history contains the items that have to be placed at the left side of the
-            implication of the logical expression.
-            - feedback of history: this is a numpy array of the same length of history. It contains only 1/0 and
-            specifies which items in the history are negative items (that have to be negated with the NOT module) and
-            which items are positive items. 1 means positive, while 0 means negative.
+            - history: this is a :class:`numpy.ndarray` that forms the history sequence of the user-item interaction.
+            It could be an array of up to 5 elements. The history contains the items that have to be placed at the left
+            side of the implication of the logical expression.
+            - feedback of history: this is a :class:`numpy.ndarray` of the same length of history. It contains only 1/0
+            values and specifies which items in the history are negative items (that have to be negated with the NOT
+            module) and which items are positive items. 1 means positive, while 0 means negative.
             - negative item: during training this is the negative item to build the negative logical expression for
             the pair-wise learning. During validation, instead, we have 100 negative items to build 100 negative
-            expressions.
+            expressions that are used to compute the metrics.
 
         The forward function takes as input these information for every user-item interaction in the batch, it
-        constructs the positive logical expression (history -> positive item ID) and negative logical expression
-        (history -> negative item ID) based on these information and finally it computes the similarity of the two
-        logical expressions with the TRUE vector. An high similarity means that the logical expression is true and the
-        target item could be recommended, while a low similarity means that the logical expression is false and the
-        target item should not be recommended. During training, we want the logical expressions based on positive items
-        to be evaluated to true, while the logical expressions based on negative items to be evaluated to false.
+        constructs the embeddings of the positive logical expression (history -> positive item) and negative logical
+        expression (history -> negative item) and finally it computes the cosine similarity of the two
+        logical expression embeddings with the fixed TRUE vector. An high similarity means that the logical expression
+        is true and the target item should be recommended, while a low similarity means that the logical expression
+        is false and the target item should not be recommended. During training, we want the logical expressions based
+        on positive items to be evaluated to true, while the logical expressions based on negative items to be evaluated
+        to false.
         Finally, this function adds all the intermediate event vectors that it obtains while constructing the
         logical expressions to a list. These intermediate event vectors are then used by the model for performing the
-        logical regularization, that is needed to assure that each module learns the correct logical operator.
-        :param batch_data: it contains the user-item interactions and the information to build the positive and
-        negative logical expressions.
-        :return positive_predictions: a torch tensor containing the similarities of the positive logical expressions
-        with the TRUE vector.
-        :return negative_predictions: a torch tensor containing the similarities of the negative logical expressions
-        with the TRUE vector. Note that during validation we have 100 similarities for each user-item interaction in
-        input since we build 100 negative logical expressions.
-        :return constraints: a torch tensor of intermediate event vectors used by the model for performing logical
-        regularization.
-        """
-        user_ids, item_ids, histories, history_feedbacks, neg_item_ids = batch_data
+        logical regularization, that is needed to ensure that each module learns the correct logical operator.
 
+        Parameters
+        ----------
+        batch_data : :obj:`tuple`
+            A batch of data that contains the following information:
+                user_ids : :class:`torch.Tensor`
+                    The IDs of the users in the batch.
+                item_ids : :class:`torch.Tensor`
+                    The IDs of the items in the batch. These are the items that have to be predicted (items at the right side
+                    of the implication of the logical expressions).
+                histories : :class:`torch.Tensor`
+                    For each user-item pair of the batch, this :class:`torch.Tensor` contains the items in the premise of the
+                    logical expression (items at the left side of the implication).
+                history_feedbacks : :class:`torch.Tensor`
+                    For each user-item pair of the batch, this :class:`torch.Tensor` contains binary values indicating whether
+                    the items in the premise of the logical expression have to be negated or not. 0 means negation, 1 means
+                    no negation.
+                neg_item_ids : :class:`torch.Tensor`
+                    For each user-item pair of the batch, this :class:`torch.Tensor` contains a random negative item (item that
+                    the user has never seen) to build the negative logical expression for the pair-wise learning. During validation,
+                    this :class:`torch.Tensor` contains 100 random negative items that have to be used to compute the ranking metrics.
+
+        Returns
+        ----------
+        :class:`torch.Tensor`
+            The similarities of the positive logical expressions with the TRUE vector.
+        :class:`torch.Tensor`
+            The similarities of the negative logical expressions with the TRUE vector. Note that during validation we
+            have 100 similarities for each user-item interaction in input since we build 100 negative logical expressions.
+        :class:`torch.Tensor`
+            Intermediate event vectors that have to be used by the model for performing the logical regularization.
+        """
+        user_ids, items_ids, histories, history_feedbacks, neg_item_ids = batch_data
         # here, we select the user and item (also negative) embeddings given user, item and negative item ids
         user_embs = self.user_embeddings(user_ids)
         item_embs = self.item_embeddings(item_ids)
@@ -346,14 +447,10 @@ class NCR_net(NeuralNet):
         return positive_predictions, negative_predictions, constraints
 
     def init_weights(self):
-        r"""Initialize the weights of the network.
+        r"""Initializes the weights of the network.
 
-        Weights are initialized with the :py:func:`torch.nn.init.xavier_uniform_` initializer,
-        while biases are initalized with the :py:func:`torch.nn.init.normal_` initializer.
+        Weights and biases are initialized with the :py:func:`torch.nn.init.normal_` initializer.
         """
-        """
-                It initializes all the weights of the neural architecture as reported in the paper.
-                """
         # not
         normal_init(self.not_layer_1.weight, mean=0.0, std=0.01)
         normal_init(self.not_layer_1.bias, mean=0.0, std=0.01)
@@ -378,7 +475,6 @@ class NCR_net(NeuralNet):
         normal_init(self.user_embeddings.weight, mean=0.0, std=0.01)
         normal_init(self.item_embeddings.weight, mean=0.0, std=0.01)
 
-
     def get_state(self):
         state = {
             "name" : self.__class__.__name__,
@@ -393,22 +489,47 @@ class NCR_net(NeuralNet):
         }
         return state
 
-
 class NCR_Sampler(Sampler):
-    """This is a standard sampler that returns batches without any particular constraint.
-    Bathes are randomly returned with the defined dimension (i.e., ``batch_size``). If ``shuffle``
-    is set to ``False`` then the sampler returns batches with the same order as in the original
-    dataset.
-    Parameters/Attributes
+    r"""Sampler used for training, validating and testing the NCR model.
+
+    The peculiarity of this sampler (see for [NCR]_ more details) is that in `train` mode it randomly samples one negative
+    item for each user-item interaction, while in `validation/test` mode it randomly samples 100 negative items for each
+    user-item interaction. In `train` mode, the negative item is used by the NCR model for the pair-wise learning procedure,
+    while in `validation/test` mode the 100 negative items are used to compute the ranking metrics.
+
+    Parameters
     ----------
-    data : the dataset fold for which the batches have to be created.
-    n_neg_samples: number of negative samples that have to be generated for each interaction (during training should be
-    one, while in validation and test should be 100 (these are the specs reported in the paper))
-    user_item_matrix: this is a scipy sparse matrix containing the user-item interactions in the dataset. This is needed
-    for the sampling of negative items.
-    batch_size : the size of the batches, by default 1.
-    shuffle : whether the data set must by randomly shuffled before creating the batches, by default ``True``
-    device: the device where the torch tensors have to be put
+    data : :class:`rectorch.data.Dataset`
+        The dataset from which the sampler samples the ratings.
+    mode : :obj:`str` in the set {``'train'``, ``'valid'``, ``'test'``} [optional]
+        Indicates the mode in which the sampler operates, by default ``'train'``.
+    batch_size : :obj:`int` [optional]
+        The size of the batches, by default 128
+    n_neg_samples_t : :obj:`int` [optional]
+        Number of negative samples that have to be generated for each interaction in `train` mode, by default 1.
+    n_neg_samples_vt : :obj:`int` [optional]
+        Number of negative samples that have to be generated for each interaction in `validation/test` mode, by default 100.
+    shuffle : :obj:`bool` [optional]
+        Whether the data set must by randomly shuffled before creating the batches, by default ``True``.
+
+    Attributes
+    ----------
+    dataset : :class:`rectorch.data.Dataset`
+        See :attr:`data` parameter.
+    n_neg_samples_t : :obj:`int`
+        See :attr:`n_neg_samples_t` parameter.
+    n_neg_samples_vt : :obj:`int`
+        See :attr:`n_neg_samples_vt` parameter.
+    batch_size : :obj:`int`
+        See :attr:`batch_size` parameter.
+    shuffle : :obj:`bool`
+        See :attr:`shuffle` parameter.
+
+    References
+    ----------
+    .. [NCR] Chen Hanxiong, Shi Shaoyun, Li Yunqi, and Zhang Yongfeng. 2020.
+       Neural Collaborative Reasoning.
+       arXiv pre-print: https://arxiv.org/abs/2005.08129
     """
     def __init__(self,
                  data,
@@ -424,7 +545,6 @@ class NCR_Sampler(Sampler):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self._set_mode(mode)
-
 
     def _set_mode(self, mode="train", batch_size=None):
         assert mode in ["train", "valid", "test"], "Invalid sampler's mode."
@@ -500,43 +620,27 @@ class NCR_Sampler(Sampler):
 
 
 class NCR_trainer(TorchNNTrainer):
-    r"""Trainer class for the CFGAN model.
+    r"""Trainer class for the NCR model.
 
     Parameters
     ----------
-    generator : :class:`torch.nn.Module`
-        The generator neural network. The expected architecture is
-        :math:`[m, l_1, \dots, l_h, m]` where *m* is the number of items :math:`l_i, i \in [1,h]`
-        is the number of nodes of the hidden layer *i*.
-    discriminator : :class:`torch.nn.Module`
-        The discriminator neural network. The expected architecture is
-        :math:`[2m, l_1, \dots, l_h, 1]` where *m* is the number of items :math:`l_i, i \in [1,h]`
-        is the number of nodes of the hidden layer *i*.
-    alpha : :obj:`float` [optional]
-        The ZR-coefficient, by default 0.1.
-    s_pm : :obj:`float` [optional]
-        The sampling parameter for the partial-masking approach, by default 0.7.
-    s_zr : :obj:`float` [optional]
-        The sampling parameter for the zero-reconstruction regularization, by default 0.5.
+    ncr_net : :class:`torch.nn.Module`
+        The NCR neural network.
+    logic_reg_weight : :obj:`float` [optional]
+        The weight for the logical regularization term of the loss function, by default 0.01.
+    device : :class:`torch.device` or :obj:`str` [optional]
+        The device (CPU or GPU) where the training has to be performed, by default :obj:`None`.
     opt_conf : :obj:`dict` [optional]
         The optimizer configuration dictionary, by default :obj:`None`.
 
     Attributes
     ----------
-    generator : :class:`torch.nn.Module`
-        See ``generator`` parameter.
-    discriminator : :class:`torch.nn.Module`
-        See ``discriminator`` parameter.
-    alpha : :obj:`float`
-        See ``alpha`` paramater.
-    s_pm : :obj:`float`
-        See ``s_pm`` paramater.
-    s_zr : :obj:`float`
-        See ``s_zr`` paramater.
-    opt_g : :class:`torch.optim.Optimizer`
-        Optimizer used for performing the training of the generator.
-    opt_d : :class:`torch.optim.Optimizer`
-        Optimizer used for performing the training of the discriminator.
+    ncr_net : :class:`torch.nn.Module`
+        See ``ncr_net`` parameter.
+    reg_weight : :obj:`float`
+        See ``logic_reg_weight`` parameter.
+    optimizer : :class:`torch.optim.Optimizer`
+        Optimizer used for performing the training of the NCR model.
     """
     def __init__(self,
                  ncr_net,
@@ -548,8 +652,7 @@ class NCR_trainer(TorchNNTrainer):
         self.reg_weight = logic_reg_weight
         self.optimizer = init_optimizer(self.ncr_net.parameters(), opt_conf)
 
-
-    def reg_loss(self, constraints):
+    def _reg_loss(self, constraints):
         """
         It computes the regularization part of the loss function.
         :param constraints: see loss_function()
@@ -643,11 +746,11 @@ class NCR_trainer(TorchNNTrainer):
 
         return r_loss
 
-
     def loss_function(self, positive_preds, negative_preds, constraints):
-        """
-        This method computes the loss function for a single batch. It takes as inputs the predictions for positive
-        and negative logical expressions and a tensor containing the intermediate event vectors obtained while building
+        """This method computes the loss function for a single batch.
+
+        It takes as inputs the predictions for positive and negative logical expressions and a tensor containing the
+        intermediate event vectors obtained while building
         the logical expressions of the batch. The loss is computed as reported in the paper.
         :param positive_preds: predictions for positive logical expressions.
         :param negative_preds: predictions for negative logical expressions.
@@ -664,10 +767,9 @@ class NCR_trainer(TorchNNTrainer):
         loss = -(positive_preds - negative_preds).sigmoid().log().sum()  # this is the formula in the paper
 
         # here, we compute the regularization loss
-        r_loss = self.reg_loss(constraints)
+        r_loss = self._reg_loss(constraints)
 
         return loss + self.reg_weight * r_loss
-
 
     def train_epoch(self, epoch, data_sampler, verbose):
         """
@@ -699,7 +801,6 @@ class NCR_trainer(TorchNNTrainer):
         time_diff = time.time() - epoch_start_time
         env.logger.info("| epoch %d | loss %.4f | total time: %.2fs |", epoch, total_loss, time_diff)
 
-
     def train_batch(self, batch_data):
         """
         This method performs the training of a single batch.
@@ -717,7 +818,6 @@ class NCR_trainer(TorchNNTrainer):
         self.optimizer.step()
         return loss.item()
 
-
     def get_state(self):
         state = {
             'epoch': self.current_epoch,
@@ -729,7 +829,6 @@ class NCR_trainer(TorchNNTrainer):
             }
         }
         return state
-
 
     @classmethod
     def from_state(cls, state):
@@ -743,27 +842,32 @@ class NCR_trainer(TorchNNTrainer):
 
 
 class NCR(NeuralModel):
-    r"""CFGAN: A Generic Collaborative Filtering Framework based on Generative Adversarial Networks.
+    r"""Neural Collaborative Reasoning (NCR): a Neural-Symbolic approach for top-N recommendation.
+
+    This class contains the methods for training and testing an NCR model.
 
     Parameters
     ----------
-    gan_layers_dim : :obj:`list` of :obj:`int`
-        The dimension of the layers of the generator network ordered from the input to the output.
-    dic_layers_dim : :obj:`list` of :obj:`int`
-        The dimension of the layers of the discriminator network ordered from the input to the
-        output.
-    alpha : :obj:`float` [optional]
-        The ZR-coefficient, by default 0.1.
-    s_pm : :obj:`float` [optional]
-        The sampling parameter for the partial-masking approach, by default 0.7.
-    s_zr : :obj:`float` [optional]
-        The sampling parameter for the zero-reconstruction regularization, by default 0.5.
+    n_users : :obj:`int` [optional]
+        The number of users in the dataset, by default :obj:`None`.
+    n_items : :obj:`int` [optional]
+        The number of items in the dataset, by default :obj:`None`.
+    dropout : :obj:`float` [optional]
+        The percentage of units that have to be shut down in dropout layers. There is a dropout layer in each neural
+        module of the architecture, by default 0.0.
+    remove_double_not : :obj:`bool` [optional]
+        Flag indicating whether the double negation has to be removed during the construction of logical expressions,
+        by default `False`.
+        If this flag is se to `True` then ¬¬x will be converted to x. In the original paper, researchers preferred to
+        do not remove double negations in such a way to make the model more robust by passing through the NOT module more
+        times.
+    logic_reg_weight : :obj:`float` [optional]
+        The weight for the logical regularization term of the loss function, by default 0.01.
     opt_conf : :obj:`dict` [optional]
         The optimizer configuration dictionary, by default :obj:`None`.
-    device : :obj:`str` [optional]
-        The device where the model must be loaded, by default :obj:`None`. If :obj:`None`, the
-        default device (see `rectorch.env.device`) is used.
-    trainer : :class:`rectorch.models.nn.multvae.CFGAN_trainer` [optional]
+    device : :class:`torch.device` or :obj:`str` [optional]
+        The device (CPU or GPU) where the training has to be performed, by default :obj:`None`.
+    trainer : :class:`rectorch.models.nn.ncr.NCR_trainer` [optional]
         The trainer object for performing the learning, by default :obj:`None`. If not :obj:`None`
         it is the only parameters that is taken into account for creating the model.
     """
@@ -788,49 +892,60 @@ class NCR(NeuralModel):
                                   opt_conf=opt_conf)
             super(NCR, self).__init__(network, trainer, device)
 
-
     def train(self,
               dataset,
               batch_size=128,
               n_neg_samples_t=1,
               n_neg_samples_vt=100,
               shuffle=True,
-              valid_metric=None,
-              valid_func=ValidFunc(logic_evaluate),
+              valid_metric='ndcg@5',
+              valid_func=ValidFunc(ncr_evaluate),
               num_epochs=100,
               at_least=20,
               early_stop=5,
               best_path="./saved_models/best_ncr_model.json",
               verbose=1,
-              seed=None):
-        r"""Training procedure of CFGAN.
+              seed=2021):
+        r"""Training procedure of NCR.
 
-        The training works in an alternate way between generator and discriminator.
-        The number of training batches in each epochs are ``g_steps`` and ``d_steps``, respectively.
+        The training is based on the pair-wise learning, while validation is based on the leave-one-out procedure.
+        For more details, please visit the original paper (`link <https://arxiv.org/abs/2005.08129>`_).
 
         Parameters
         ----------
-        dataset : :class:`rectorch.data.Dataset` or :class:`rectorch.samplers.CFGAN_TrainingSampler`
+        dataset : :class:`rectorch.data.Dataset` or :class:`rectorch.models.nn.ncr.NCR_Sampler`
             The dataset/sampler object that load the training/validation set in mini-batches.
         batch_size : :obj:`int` [optional]
-            The size of the batches, by default 64.
+            The size of the batches, by default 128.
+        n_neg_samples_t: :obj:`int` [optional]
+            Number of negative samples that have to be generated for each interaction when the sampler is in `train`
+            mode, by default 1.
+        n_neg_samples_vt: :obj:`int` [optional]
+            Number of negative samples that have to be generated for each interaction when the sampler is in
+            `validation/test` mode, by default 100.
+        shuffle : :obj:`bool` [optional]
+            Whether the data set must by randomly shuffled before the sampler creates the batches, by default ``True``
         valid_metric : :obj:`str` [optional]
-            The metric used during the validation to select the best model, by default :obj:`None`.
-            If ``valid_data`` is not :obj:`None` then ``valid_metric`` must be not :obj:`None`.
+            The metric used during the validation to select the best model, by default 'ndcg@5'.
             To see the valid strings for the metric please see the module :mod:`metrics`.
         valid_func : :class:`rectorch.validation.ValidFunc` [optional]
-            The validation function, by default a standard validation procedure, i.e.,
-            :func:`rectorch.evaluation.evaluate`.
+            The validation function, by default the NCR validation procedure, i.e.,
+            :func:`rectorch.evaluation.ncr_evaluate`.
         num_epochs : :obj:`int` [optional]
-            Number of training epochs, by default 1000.
-        g_steps : :obj:`int` [optional]
-            Number of steps for a generator epoch, by default 5.
-        d_steps : :obj:`int` [optional]
-            Number of steps for a discriminator epoch, by default 5.
+            Number of training epochs, by default 100.
+        at_least : :obj:`int` [optional]
+            Minimum number of epochs that have to be trained before beginning the early stopping counter, by default 20.
+        early_stop : :obj:`int` [optional]
+            Number of epochs after which the training will be stopped if no improvements on the validation metric will
+            be found.
+        best_path : :obj:`str` [optional]
+            The path where to save the model, by default './saved_models/best_ncr_model.json'.
         verbose : :obj:`int` [optional]
             The level of verbosity of the logging, by default 1. The level can have any integer
             value greater than 0. However, after reaching a maximum verbosity value (that depends on
             the size of the training set), higher values will not have any effect.
+        seed : :obj:`int` [optional]
+            The seed for reproducing the experiments, by default 2021.
         """
         set_seed(seed)
         if isinstance(dataset, Sampler):
@@ -875,40 +990,58 @@ class NCR(NeuralModel):
         except KeyboardInterrupt:
             env.logger.warning('Handled KeyboardInterrupt: exiting from training early')
 
-
     def predict(self, batch_data):
-        """Performs the prediction on the given batch using the trained NCR network. It takes as input a batch of
-        logical expressions and it returns the predictions for the positive and negative logical expressions in the
-        batch. Note that during validation we have one positive expression and 100 negative expressions for each
-        interaction in the batch.
+        r"""Performs the prediction on the given batch using the trained NCR network.
+
+        It takes as input a batch of logical expressions and it returns the predictions for the positive and negative
+        logical expressions in the batch. Note that during validation we have one positive expression and 100 negative
+        expressions for each interaction in the batch.
+
         Parameters
         ----------
         batch_data : :class:`torch.Tensor`
             The input for which the prediction has to be computed.
+
         Returns
-        -------
-        :return positive_predictions: the predictions for the positive logical expressions contained in the input batch.
-        There is one positive prediction for each row of the batch.
-        :return negative_predictions: the predictions for the negative logical expressions contained in the inpu batch.
-        There are 100 negative predictions for each row of the batch.
+        ----------
+        :class:`torch.Tensor`
+            The predictions for the positive logical expressions contained in the input batch.
+            There is one positive prediction for each row of the batch.
+        :class:`torch.Tensor`
+            The predictions for the negative logical expressions contained in the input batch.
+            There is one negative prediction for each row of the batch if the sampler is in `train` mode.
+            There are 100 negative predictions for each row of the batch if the sampler is in `validation` mode.
         """
         self.network.eval()  # we have to set the network in evaluation mode
         with torch.no_grad():
             positive_predictions, negative_predictions, _ = self.network(batch_data)
         return positive_predictions, negative_predictions
 
-
     def test(self, dataset, n_neg_samples=100, batch_size=256, test_metrics=['ndcg@5', 'ndcg@10', 'hit@5', 'hit@10'],
              n_times=10):
-        """
-        This method performs the test of a trained NCR model.
-        :param test_loader: this is the DataSampler that loads the test set interactions.
-        :param test_metrics: this is a list containing the test metrics that have to be computed.
-        :param n_times: this is the number of times that the evaluation has to be computed. Since the test loader
-        generates 100 random negative items for each interaction in the test set, different random generations
-        could lead to different test performances. The evaluation will be computed n_times times and then each metric
-        will be averaged among these n_times evaluations.
-        This method will log the value of each one of the metrics (plus std error) once this procedure has finished.
+        r"""Performs the test of a trained NCR model.
+
+        It computes the metrics expressed in the `test_metrics` parameter on the test set of the given dataset (`dataset`
+        parameter).
+
+        This method will log the value of each one of the metrics (plus std error) once the evaluation has finished.
+
+        Parameters
+        ----------
+        dataset : :class:`rectorch.data.Dataset` or :class:`rectorch.models.nn.ncr.NCR_Sampler`
+            The dataset/sampler object that load the training/validation set in mini-batches.
+        n_neg_samples:  :obj:`int` [optional]
+            Number of negative samples that have to be generated for each interaction when the sampler is in
+            `validation/test` mode, by default 100.
+        batch_size : :obj:`int` [optional]
+            The size of the batches, by default 256.
+        test_metrics: :obj:`list` [optional]
+            List of :obj:`str` of the metrics that have to be computed on the test set, by default
+            ['ndcg@5', 'ndcg@10', 'hit@5', 'hit@10'].
+        n_times :  :obj:`int` [optional]
+            Since the sampler generates 100 random negative items for each interaction in the test set, different random
+            generations could lead to different test performances. The evaluation will be computed `n_times` times and
+            then each metric will be averaged among these `n_times` evaluations. The default value is 10.
         """
         if isinstance(dataset, Sampler):
             data_sampler = dataset
@@ -921,7 +1054,7 @@ class NCR(NeuralModel):
         metric_dict = {}
         for i in range(n_times):  # compute test metrics n_times times and take the mean since negative samples are
             # randomly generated
-            evaluation_dict = logic_evaluate(self, data_sampler, test_metrics)
+            evaluation_dict = ncr_evaluate(self, data_sampler, test_metrics)
             for metric in evaluation_dict:
                 if metric not in metric_dict:
                     metric_dict[metric] = {}

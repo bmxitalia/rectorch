@@ -18,7 +18,7 @@ __email__ = "mak1788@gmail.com"
 __status__ = "Development"
 #
 
-__all__ = ['evaluate', 'one_plus_random', 'logic_evaluate']
+__all__ = ['evaluate', 'one_plus_random', 'ncr_evaluate']
 
 
 def evaluate(model, test_sampler, metric_list):
@@ -154,7 +154,7 @@ def one_plus_random(model, test_sampler, metric_list, r=1000):
     return results
 
 
-def logic_evaluate(model, test_sampler, metric_list):
+def ncr_evaluate(model, test_sampler, metric_list):
     """Evaluate the given NCR model.
 
     The ``model`` evaluation is performed with all the provided metrics in ``metric_list``.

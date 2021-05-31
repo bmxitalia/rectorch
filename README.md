@@ -35,6 +35,7 @@ The latest PyPi release contains the following methods.
 | ADMM_Slim | ADMM SLIM: Sparse Recommendations for Many Users                                       | [[5]](#5) |
 | SVAE      | Sequential Variational Autoencoders for Collaborative Filtering                        | [[6]](#6) |
 | RecVAE    | RecVAE: A New Variational Autoencoder for Top-N Recommendations with Implicit Feedback | [[7]](#7) |
+| NCR       | Neural Collaborative Reasoning: a Neural-Symbolic approach for top-N recommendation    | [[8]](#8) |
 
 Now **rectorch** also includes some baseline methods.
 
@@ -42,8 +43,8 @@ Now **rectorch** also includes some baseline methods.
 |-----------|----------------------------------------------------------------------------------------|-----------|
 | Random    | Random recommender                                                                     |           |
 | Popularity| Popularity-based recommender                                                           |           |
-| SLIM      | SLIM: Sparse Linear Methods for Top-N Recommender Systems                              | [[8]](#8) |
-| CF-KOMD   | Boolean kernels for collaborative filtering in top-N item recommendation               | [[9]](#9) |
+| SLIM      | SLIM: Sparse Linear Methods for Top-N Recommender Systems                              | [[9]](#9) |
+| CF-KOMD   | Boolean kernels for collaborative filtering in top-N item recommendation               | [[10]](#10) |
 
 # Getting started
 ## Installation
@@ -195,11 +196,15 @@ Ilya Shenbin, Anton Alekseev, Elena Tutubalina, Valentin Malykh, and Sergey
    528–536. DOI:https://doi.org/10.1145/3336191.3371831
 
 <a id="8">[8]</a>
+Chen Hanxiong, Shi Shaoyun, Li Yunqi, and Zhang Yongfeng. 2020. Neural Collaborative Reasoning. arXiv pre-print:
+   https://arxiv.org/abs/2005.08129
+
+<a id="9">[9]</a>
 Mirko Polato and Fabio Aiolli. 2018. Boolean kernels for collaborative filtering in
    top-N item recommendation.  Neurocomputing, Elsevier Science Ltd., Vol. 286, pp. 214-225,
    Oxford, UK. DOI: https://doi.org/10.1016/j.neucom.2018.01.057, ISSN: 0925-2312.
 
-<a id="9">[9]</a>
+<a id="10">[10]</a>
 X. Ning and George Karypis. 2011. SLIM: Sparse Linear Methods for Top-N Recommender
    Systems. In the Proceedings of the IEEE 11th International Conference on Data Mining,
    Vancouver, BC, 2011, pp. 497-506. DOI: https://doi.org/10.1109/ICDM.2011.134.

@@ -75,14 +75,15 @@ available in `GitHub <https://github.com/makgyver/rectorch/tree/master/config>`_
 Neural Collaborative Reasoning data configuration file
 ------------------------
 
-The data configuration file for Neural Collaborative Reasoning (`NCR <https://grouplens.org/datasets/movielens/100k/>`_) is different from the standard configuration file
-since NCR uses a proprietary pre-processing.
+The data configuration file for Neural Collaborative Reasoning (`NCR <https://grouplens.org/datasets/movielens/100k/>`_)
+is different from the standard configuration file since NCR uses a proprietary pre-processing.
 In particular, the pre-processing includes the following steps:
 
 1. the interactions are divided into positive and negative interactions based on a threshold. The interactions equal to
-or higher than the threshold are mapped to 1, while the remaining interactions are mapped to 0;
+or higher than the threshold are mapped to 1 (positive interactions), while the remaining interactions are mapped to 0
+(negative interactions);
 2. all the interactions are ordered by timestamp;
-3. the dataset is splitted into train, validation and test set using the leave-one procedure reported in the NCR paper;
+3. the dataset is split into train, validation and test set using the leave-one procedure reported in the NCR paper;
 4. the logical expressions are generated for train, validation, and test sets using the procedure explained in the NCR
 paper.
 
@@ -102,7 +103,7 @@ than ``rating_threshold`` are mapped to 1, while the remaining ratings are mappe
 the procedure explained in the NCR paper;
 * ``max_history_length``: integer maximum number of items in the premise of the logical expressions;
 * ``premise_threshold``: integer threshold used to cut-off logical expressions from the dataset based on the number of
-premises. All the logical expressions with a number of premises equal to or lower than premise_threshold are removed
+premises. All the logical expressions with a number of premises equal to or lower than ``premise_threshold`` are removed
 from the dataset.
 
 The ``splitting`` options are the following:
@@ -137,9 +138,9 @@ This is an example of a valid data configuration file for NCR:
 The example above is a valid configuration for the `Movielens 100k dataset <https://grouplens.org/datasets/movielens/100k/>`_
 where ratings equal to or higher than 4 stars are considered as positive, while ratings lower than 4 are considered as negative.
 The ratings are ordered by timestamp before splitting the dataset into train, validation, and test set. The dataset is then
-splitted into train, validation, and test sets using the parameters ``leave_n`` and ``keep_n``. Finally, the logical expressions
+split into train, validation, and test sets using the parameters ``leave_n`` and ``keep_n``. Finally, the logical expressions
 for the three folds are generated according to parameters ``max_history_length`` and ``premise_threshold``.
-Some examples of data configuration files are
+Some examples of data configuration files for NCR are
 available in `GitHub <https://github.com/makgyver/rectorch/tree/master/config>`_.
 
 Model configuration file

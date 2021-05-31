@@ -4,7 +4,9 @@ The supported data set format is standard `csv
 <https://it.wikipedia.org/wiki/Comma-separated_values>`_.
 For more information about the expected data set format please visit :ref:`csv-format`.
 The data processing and loading configurations are managed through the configuration files
-as described in :ref:`config-format`.
+as described in :ref:`config-format`. Please, note that the Neural Collaborative Reasoning (NCR)
+approach requires a different pre-processing procedure and configuration files compared to the
+other methods implemented in rectorch. Refer to :ref:`config-format` to find detailed information.
 The vertical data splitting phase is highly inspired by `VAE-CF source code
 <https://github.com/dawenl/vae_cf>`_, which has been lately used on several other research works.
 
@@ -24,7 +26,11 @@ The same computation can be simplified as follows:
 
 Notes
 ----------
-For the Neural Collaborative Reasoning (NCR) model, :class:`NCRDataProcessing` has to be used instead of :class:`DataProcessing`.
+For the Neural Collaborative Reasoning (NCR) model, :class:`NCRDataProcessing` has to be used instead
+of :class:`DataProcessing` for the pre-processing step. Example:
+
+>>> from rectorch.data import NCRDataProcessing
+>>> dataset = NCRDataProcessing("/path/to/the/config/file").process_and_split()
 
 See Also
 --------
@@ -608,8 +614,8 @@ class DataProcessing():
         """Process the data set raw file.
 
         The pre-processing relies on the configurations provided in the data configurations
-        :attr:`cfg`. The full pre-processing follows a specific pipeline (the meaning of
-        each configuration parameter is defined in :ref:`config-format`).
+        :attr:`cfg`. The full pre-processing follows a specific pipeline that depends on the data
+        processor used (the meaning of each configuration parameter is defined in :ref:`config-format`).
 
         Returns
         -------
@@ -982,15 +988,10 @@ class NCRDataProcessing(DataProcessing):
 
     Data sets are expected of being `csv <https://it.wikipedia.org/wiki/Comma-separated_values>`_
     files where each row represents a rating. More details about the allowed format are described
-    in :ref:`csv-format`. In particular, each row has to contain the following required fields:
-
-    1. user id: the ID of the user in the dataset;
-    2. item id: the ID of the item in the dataset;
-    3. rating: a score, usually between 1 and 5, that the user gave to the item;
-    4. timestamp: NCR uses the timestamp field to create the logical expressions for learning the model.
+    in :ref:`csv-format` (please, refer to the section dedicated to NCR).
 
     The pre-processing is performed following the parameters settings defined in the data configuration
-    file (see :ref:`config-format` for more information).
+    file. Visit :ref:`config-format` for more information (please, refer to the section dedicated to NCR).
 
     Parameters
     ----------
@@ -1044,15 +1045,16 @@ class NCRDataProcessing(DataProcessing):
         self.dataset = pd.DataFrame(data=dic_data, columns=cols)
 
     def process(self):
-        r"""It processes the dataset given the pre-processing parameters in the config file. In particular, it filters the user-item
-        interactions using the rating_threshold and orders them by timestamp field (if rating_order is set to True). Ratings equal
-        to or higher than threshold are converted to 1 (positive feedback), while ratings lower than threshold are
-        converted to 0 (negative feedback).
+        r"""It processes the dataset given the pre-processing parameters in the provided configurations :attr:`cfg`.
+        In particular, it filters the user-item interactions using the ``rating_threshold`` parameter and orders them by
+        timestamp field (if ``rating_order`` parameter is set to True). Ratings equal
+        to or higher than ``rating_threshold`` are converted to 1 (positive interactions), while ratings lower than
+        ``rating_threshold`` are converted to 0 (negative interactions).
 
         Returns
         ----------
         :class:`pandas.DataFrame`
-            The dataset processed according to the pre-processing parameters specified in the config file.
+            The dataset processed according to the pre-processing parameters specified in the configurations :attr:`cfg`.
         """
         # filter ratings by threshold
         proc_dataset = self.dataset.copy()
@@ -1066,12 +1068,11 @@ class NCRDataProcessing(DataProcessing):
 
     def split(self, data):
         r"""
-        It creates train, validation and test folds as reported in the NCR paper. For doing that, it calls
-        :meth:`_leave_one_out_by_time()`. Then, it adds to the folds the information required to generate the logical
-        expressions for the training/testing of the model. For doing so, it calls :meth:`_generate_histories()`. After
-        the splitting is performed a :class:`NCRDataset` is returned.
+        It creates train, validation and test folds as reported in the NCR paper (leave-one-out procedure). Using
+        the splitting configuration expressed in the configurations :attr:`cfg`. After the split has been performed
+        a :class:`NCRDataset` is returned.
 
-        Prameters
+        Parameters
         ----------
         data : :class:`pandas.DataFrame`
             The processed dataset ordered by timestamp.
@@ -1228,8 +1229,8 @@ class NCRDataset(Dataset):
     r"""Dataset for training, validating and testing Neural Collaborative Reasoning (NCR). For more information about
     this approach, please refer to the official paper: <https://arxiv.org/pdf/2005.08129.pdf>`_.
 
-    NCRDataset contains the training, [validation], and test set for performing experiments with NCR. This class extends
-    from :class:`Dataset` and adds some important features useful for NCR.
+    :class:`NCRDataset` contains the training, validation, and test set for performing experiments with NCR. This class
+    extends from :class:`Dataset` and adds some important features useful for NCR, for example :attr:`user_item_matrix`.
 
     Parameters
     ----------
@@ -1244,7 +1245,7 @@ class NCRDataset(Dataset):
     test_set : :class:`pandas.DataFrame`
         The test set data frame.
     full_data : :class:`pandas.DataFrame`
-        The entire dataset not splitted into train, validation, and test sets.
+        The entire dataset that has not be split into train, validation, and test sets.
 
     Attributes
     ----------

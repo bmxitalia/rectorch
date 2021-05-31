@@ -32,4 +32,19 @@ rating value. For example:
     u2,i1,4
     u2,i3,5
 
-which is a data set with the same users as the one above, but with explicit ratings. 
+which is a data set with the same users as the one above, but with explicit ratings.
+
+Neural Collaborative Reasoning CSV format
+====================
+
+Please, note that Neural Collaborative Reasoning (NCR) requires a similar but different CSV format compared
+to the other models. In particular, it is necessary to provide a timestamp for the user-item interaction since
+NCR uses the timestamp field to build the logical expressions. Example:
+
+.. code-block::
+
+    user_id,item_id,rating,timestamp
+    u1,i1,3.5,876042340
+    u1,i2,2,876042985
+    u2,i1,4,876042384
+    u2,i3,5,876042059

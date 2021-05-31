@@ -1046,7 +1046,8 @@ class NCRDataProcessing(DataProcessing):
 
     def process(self):
         r"""It processes the dataset given the pre-processing parameters in the provided configurations :attr:`cfg`.
-        In particular, it filters the user-item interactions using the ``rating_threshold`` parameter and orders them by
+
+        It filters the user-item interactions using the ``rating_threshold`` parameter and orders them by
         timestamp field (if ``rating_order`` parameter is set to True). Ratings equal
         to or higher than ``rating_threshold`` are converted to 1 (positive interactions), while ratings lower than
         ``rating_threshold`` are converted to 0 (negative interactions).
@@ -1067,10 +1068,10 @@ class NCRDataProcessing(DataProcessing):
         return proc_dataset
 
     def split(self, data):
-        r"""
-        It creates train, validation and test folds as reported in the NCR paper (leave-one-out procedure). Using
-        the splitting configuration expressed in the configurations :attr:`cfg`. After the split has been performed
-        a :class:`NCRDataset` is returned.
+        r"""It creates train, validation and test folds as reported in the NCR paper (leave-one-out procedure).
+
+        To split the dataset it uses the splitting configuration expressed in the configurations :attr:`cfg`.
+        After the split has been performed a :class:`NCRDataset` is returned.
 
         Parameters
         ----------
@@ -1226,10 +1227,11 @@ class NCRDataProcessing(DataProcessing):
 
 
 class NCRDataset(Dataset):
-    r"""Dataset for training, validating and testing Neural Collaborative Reasoning (NCR). For more information about
-    this approach, please refer to the official paper: <https://arxiv.org/pdf/2005.08129.pdf>`_.
+    r"""Dataset for training, validating and testing Neural Collaborative Reasoning (NCR).
 
-    :class:`NCRDataset` contains the training, validation, and test set for performing experiments with NCR. This class
+    For more information about
+    this approach, please refer to the official paper: <https://arxiv.org/pdf/2005.08129.pdf>`_. :class:`NCRDataset`
+    contains the training, validation, and test set for performing experiments with NCR. This class
     extends from :class:`Dataset` and adds some important features useful for NCR, for example :attr:`user_item_matrix`.
 
     Parameters

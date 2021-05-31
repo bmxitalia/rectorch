@@ -1097,7 +1097,7 @@ class NCRDataProcessing(DataProcessing):
             - the last leave_n positive interactions of each user are held out for test set;
             - the second to the last leave_n interactions of each user are held out for validation set.
         :param leave_n: number of items that are left in validation and test set.
-        :param warm_n: minimum number of positive interactions to leave in training dataset for each user.
+        :param keep_n: minimum number of positive interactions to leave in training dataset for each user.
         """
 
         train_set = []

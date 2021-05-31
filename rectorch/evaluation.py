@@ -155,28 +155,36 @@ def one_plus_random(model, test_sampler, metric_list, r=1000):
 
 
 def logic_evaluate(model, test_sampler, metric_list):
-    """Evaluate the given logical recommender.
+    """Evaluate the given NCR model.
+
     The ``model`` evaluation is performed with all the provided metrics in ``metric_list``.
-    The test set is loaded through the provided DataSampler. Note that the test loader contains one positive expression
-    and 100 negative expressions for each interaction in the test set. The network computes the predictions for all
-    these 101 expressions and then the evaluation consists on computing ranking metrics based on the position of the
-    target item in the ranking. The position of an item in the ranking is given by the prediction that the network
-    outputs for the logical expression with that item at the right side of implication. The prediction is the similarity
-    between the logical expression event vector and the TRUE vector. Higher the similarity higher the position of the
-    target item in the ranking.
+    The test set is loaded through the provided :class:`rectorch.samplers.Sampler`
+    (i.e., ``test_sampler``). Note that the test loader contains one positive expression
+    and 100 negative expressions for each user-item interaction in the test set. The network computes the predictions
+    for all these 101 expressions and then the evaluation consists on computing ranking metrics based on the position
+    of the target item (positive interactions) in the ranking. The position of an item in the ranking is given by the
+    prediction that the network outputs for the logical expression with that item at the right side of implication.
+    The prediction is represented as the cosine similarity between the logical expression event vector and the TRUE
+    vector. Higher the similarity higher the position of the target item in the ranking.
+
     Parameters
     ----------
-    model : the logical model to evaluate.
-    test_loader : the DataSampler for the test set.
-    metric_list : list of :obj:`str`
+    model : :class:`rectorch.models.RecSysModel`
+        The model to evaluate.
+    test_sampler : :class:`rectorch.samplers.Sampler`
+        The test set loader.
+    metric_list : :obj:`list` of :obj:`str`
         The list of metrics to compute. Metrics are indicated by strings formed in the
         following way:
+
         ``metric_name`` @ ``k``
+
         where ``metric_name`` must correspond to one of the
         method names without the suffix '_at_k', and ``k`` is the corresponding parameter of
         the method and it must be an integer value. For example: ``ndcg@10`` is a valid metric
         name and it corresponds to the method
-        :func:`ndcg_at_k` with ``k=10``.
+        :func:`ndcg_at_k <rectorch.metrics.Metrics.ndcg_at_k>` with ``k=10``.
+
     Returns
     -------
     :obj:`dict` of :obj:`numpy.array`

@@ -57,7 +57,7 @@ __email__ = "mak1788@gmail.com"
 __status__ = "Development"
 #
 
-__all__ = ['DataProcessing', 'NCRDataProcessing', 'Dataset', 'NCRDataset']
+__all__ = ['DataProcessing', 'StandardDataProcessing', 'NCRDataProcessing', 'Dataset', 'NCRDataset']
 
 
 class Dataset():

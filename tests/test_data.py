@@ -11,10 +11,10 @@ import torch
 import scipy
 sys.path.insert(0, os.path.abspath('..'))
 
-from rectorch.data import DataProcessing, Dataset
+from rectorch.data import NCRDataProcessing, StandardDataProcessing, Dataset, NCRDataset
 from rectorch.configuration import DataConfig
 
-def test_DataProcessing():
+def test_StandardDataProcessing():
     """Test for the DataProcessing class
     """
     tmp = tempfile.NamedTemporaryFile()
@@ -49,9 +49,9 @@ def test_DataProcessing():
         json.dump(cfg_d, open(tmp_d.name, "w"))
 
         with pytest.raises(TypeError):
-            DataProcessing(1)
+            StandardDataProcessing(1)
 
-        dp = DataProcessing(tmp_d.name)
+        dp = StandardDataProcessing(tmp_d.name)
         data = dp.process()
         assert isinstance(data, pd.DataFrame)
         assert len(data) == 12
@@ -105,7 +105,7 @@ def test_DataProcessing():
         json.dump(cfg_d, open(tmp_d.name, "w"))
 
         dc = DataConfig(tmp_d.name)
-        dp = DataProcessing(dc)
+        dp = StandardDataProcessing(dc)
         dataset0 = dp.split(dp.process())
 
         assert dataset0.n_users == 4
@@ -122,21 +122,21 @@ def test_DataProcessing():
 
     with pytest.raises(ValueError):
         cfg_d["splitting"]["split_type"] = "pippo"
-        DataProcessing(cfg_d).process_and_split()
+        StandardDataProcessing(cfg_d).process_and_split()
 
     cfg_d["splitting"]["split_type"] = "horizontal"
     cfg_d["splitting"]["shuffle"] = True
-    dp = DataProcessing(cfg_d)
+    dp = StandardDataProcessing(cfg_d)
     dataset2 = dp.split(dp.process())
     assert list(dataset2.train_set.index) != list(dataset0.train_set.index)
 
     cfg_d["splitting"]["split_type"] = "vertical"
-    dp = DataProcessing(cfg_d)
+    dp = StandardDataProcessing(cfg_d)
     dataset3 = dp.split(dp.process())
     assert list(dataset3.train_set.index) != list(dataset.train_set.index)
 
     cfg_d["splitting"]["valid_size"] = 0
-    dp = DataProcessing(cfg_d)
+    dp = StandardDataProcessing(cfg_d)
     dataset = dp.split(dp.process())
     assert dataset.valid_set is None
 
@@ -170,7 +170,7 @@ def test_Dataset():
             "test_prop": .5
         }
     }
-    dp = DataProcessing(cfg_d)
+    dp = StandardDataProcessing(cfg_d)
     dataset = dp.split(dp.process())
 
     with tempfile.TemporaryDirectory() as tmp_folder:
@@ -293,3 +293,176 @@ def test_Dataset():
         assert len(sp[0].nonzero()[0]) == 8
         assert len(sp[1].nonzero()[0]) == 1
         assert len(sp[2].nonzero()[0]) == 1
+
+
+def test_NCRDataProcessing():
+    """Test for the NCRDataProcessing class
+    """
+    tmp = tempfile.NamedTemporaryFile()
+    with open(tmp.name, "w") as f:
+        f.write("userID itemID rating timestamp\n")
+        f.write("1 8 4 4\n1 6 1 3\n1 9 2 5\n1 5 4 2\n1 10 5 6\n1 7 3 1\n")
+        f.write("2 6 5 1\n2 1 3 3\n2 3 2 4\n2 4 5 5\n2 5 4 6\n2 8 4 2\n2 7 3 7\n")
+        f.write("3 7 2 1\n3 4 4 4\n3 1 3 2\n3 5 4 5\n3 2 1 3\n3 6 2 6\n")
+        f.write("4 8 4 1\n4 6 3 4\n4 5 5 3\n4 1 2 5\n4 10 5 2\n4 2 1 6\n")
+        f.write("5 4 2 3\n5 1 2 1\n5 6 4 4\n5 3 3 2\n5 7 2 5\n")
+
+    # ORDER is true
+    with tempfile.TemporaryDirectory():
+        tmp_d = tempfile.NamedTemporaryFile()
+        cfg_d = {
+            "processing": {
+                "data_path": tmp.name,
+                "separator": " ",
+                "header": 0,
+                "rating_order": 1,
+                "rating_threshold": 4,
+                "max_history_length": 3,
+                "premise_threshold": 0
+            },
+            "splitting": {
+                "leave_n": 1,
+                "keep_n": 2
+            }
+        }
+        json.dump(cfg_d, open(tmp_d.name, "w"))
+
+        with pytest.raises(TypeError):
+            StandardDataProcessing(1)
+
+        dp = NCRDataProcessing(tmp_d.name)
+        data = dp.process()
+        assert isinstance(data, pd.DataFrame)
+        assert len(data) == 30
+
+        tmp2 = tempfile.NamedTemporaryFile()
+        with open(tmp2.name, "w") as f:
+            f.write("userID itemID rating timestamp\n")
+            f.write("0 5 0 1\n1 1 1 1\n2 5 0 1\n3 0 1 1\n4 6 0 1\n")
+            f.write("0 3 1 2\n1 0 1 2\n2 6 0 2\n3 4 1 2\n4 7 0 2\n")
+            f.write("0 1 0 3\n1 6 0 3\n2 9 0 3\n3 3 1 3\n4 8 0 3\n")
+            f.write("0 0 1 4\n1 7 0 4\n2 8 1 4\n3 1 0 4\n4 1 1 4\n")
+            f.write("0 2 0 5\n1 8 1 5\n2 3 1 5\n3 6 0 5\n4 5 0 5\n")
+            f.write("0 4 1 6\n1 3 1 6\n2 1 0 6\n3 9 0 6\n1 5 0 7\n")
+
+        ordered_df = pd.read_csv(tmp2.name, sep=" ")
+
+        print(data)
+
+        assert ordered_df.eq(data)
+
+
+        # ORDER is false
+        with tempfile.TemporaryDirectory():
+            tmp_d = tempfile.NamedTemporaryFile()
+            cfg_d = {
+                "processing": {
+                    "data_path": tmp.name,
+                    "separator": " ",
+                    "header": 0,
+                    "rating_order": 0,
+                    "rating_threshold": 4,
+                    "max_history_length": 3,
+                    "premise_threshold": 0
+                },
+                "splitting": {
+                    "leave_n": 1,
+                    "keep_n": 2
+                }
+            }
+            json.dump(cfg_d, open(tmp_d.name, "w"))
+
+            with pytest.raises(TypeError):
+                StandardDataProcessing(1)
+
+            dp = NCRDataProcessing(tmp_d.name)
+            data = dp.process()
+            assert isinstance(data, pd.DataFrame)
+            assert len(data) == 30
+
+        '''
+
+        dataset = dp.split(data)
+
+        assert dataset.n_users == 4
+        assert dataset.n_items == 3
+        assert dataset.n_ratings == 10
+        assert set(dataset.i2id.keys()) == set([1, 2, 5])
+        assert set(dataset.u2id.keys()) == set([1, 2, 3, 4])
+        assert list(dataset.unique_iid) == [1, 2, 5]
+        assert list(dataset.unique_uid) == [1, 2, 3, 4]
+        assert len(dataset.train_set) == 5
+        assert len(dataset.valid_set) == 2
+        assert len(dataset.valid_set[0]) == 2
+        assert len(dataset.test_set) == 2
+        assert len(dataset.test_set[0]) == 1
+        assert len(dataset.valid_set[1]) == 1
+        assert len(dataset.test_set[1]) == 1
+
+    #HORIZONTAL
+    tmp = tempfile.NamedTemporaryFile()
+    with open(tmp.name, "w") as f:
+        f.write("1 1 4\n1 2 5\n1 3 2\n1 5 4\n")
+        f.write("2 5 4\n2 2 3\n2 3 1\n")
+        f.write("3 4 3\n3 5 4\n3 1 5\n3 2 5\n")
+        f.write("4 4 2\n4 3 4\n4 5 4\n4 1 3\n")
+
+    with tempfile.TemporaryDirectory():
+        tmp_d = tempfile.NamedTemporaryFile()
+        cfg_d = {
+            "processing": {
+                "data_path": tmp.name,
+                "threshold": 0,
+                "separator": " ",
+                "header": None,
+                "u_min": 1,
+                "i_min": 1
+            },
+            "splitting": {
+                "split_type": "horizontal",
+                "sort_by": None,
+                "seed": 42,
+                "shuffle": False,
+                "valid_size": 1,
+                "test_size": 1,
+                "test_prop": .5 #ignored
+            }
+        }
+        json.dump(cfg_d, open(tmp_d.name, "w"))
+
+        dc = DataConfig(tmp_d.name)
+        dp = StandardDataProcessing(dc)
+        dataset0 = dp.split(dp.process())
+
+        assert dataset0.n_users == 4
+        assert dataset0.n_items == 5
+        assert dataset0.n_ratings == 15
+
+        assert set(dataset0.i2id.keys()) == set([1, 2, 3, 4, 5])
+        assert set(dataset0.u2id.keys()) == set([1, 2, 3, 4])
+        assert set(dataset0.unique_iid) == set([1, 2, 3, 4, 5])
+        assert set(dataset0.unique_uid) == set([1, 2, 3, 4])
+        assert len(dataset0.train_set) == 7
+        assert len(dataset0.valid_set) == 4
+        assert len(dataset0.test_set) == 4
+
+    with pytest.raises(ValueError):
+        cfg_d["splitting"]["split_type"] = "pippo"
+        StandardDataProcessing(cfg_d).process_and_split()
+
+    cfg_d["splitting"]["split_type"] = "horizontal"
+    cfg_d["splitting"]["shuffle"] = True
+    dp = StandardDataProcessing(cfg_d)
+    dataset2 = dp.split(dp.process())
+    assert list(dataset2.train_set.index) != list(dataset0.train_set.index)
+
+    cfg_d["splitting"]["split_type"] = "vertical"
+    dp = StandardDataProcessing(cfg_d)
+    dataset3 = dp.split(dp.process())
+    assert list(dataset3.train_set.index) != list(dataset.train_set.index)
+
+    cfg_d["splitting"]["valid_size"] = 0
+    dp = StandardDataProcessing(cfg_d)
+    dataset = dp.split(dp.process())
+    assert dataset.valid_set is None
+    '''

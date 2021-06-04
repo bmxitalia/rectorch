@@ -8,10 +8,13 @@ import pandas as pd
 import torch
 import scipy
 sys.path.insert(0, os.path.abspath('..'))
+import tempfile, json
 
-from rectorch.data import Dataset
+from rectorch import set_seed
+from rectorch.data import Dataset, NCRDataProcessing
 from rectorch.models.nn.svae import SVAE_Sampler
 from rectorch.models.nn.cfgan import CFGAN_Sampler
+from rectorch.models.nn.ncr import NCR_Sampler
 from rectorch.samplers import Sampler, DataSampler, DictDummySampler,\
     ArrayDummySampler, TensorDummySampler, SparseDummySampler
 
@@ -261,6 +264,145 @@ def test_EmptyConditionedDataSampler():
             "the tensor tr should be [1, 0, 0, 0, 0]"
         assert np.all(te.numpy() == np.array([0, 1, 0])),\
             "the tensor te should be [0, 1, 0]"
+
+def test_NCR_Sampler():
+    """Test the NCR_Sampler class
+    """
+    set_seed(2021)
+    tmp = tempfile.NamedTemporaryFile()
+    with open(tmp.name, "w") as f:
+        f.write("userID itemID rating timestamp\n")
+        f.write("1 8 4 4\n1 6 1 3\n1 9 2 5\n1 5 4 2\n1 10 5 6\n1 7 3 1\n")
+        f.write("2 6 5 1\n2 1 3 3\n2 3 2 4\n2 4 5 5\n2 5 4 6\n2 8 4 2\n2 7 3 7\n")
+
+    with tempfile.TemporaryDirectory():
+        tmp_d = tempfile.NamedTemporaryFile()
+        cfg_d = {
+            "processing": {
+                "data_path": tmp.name,
+                "separator": " ",
+                "header": 0,
+                "rating_order": 1,
+                "rating_threshold": 4,
+                "max_history_length": 3,
+                "premise_threshold": 0
+            },
+            "splitting": {
+                "leave_n": 1,
+                "keep_n": 2
+            }
+        }
+        json.dump(cfg_d, open(tmp_d.name, "w"))
+
+        dp = NCRDataProcessing(tmp_d.name)
+        data = dp.process_and_split()
+
+        # test train mode
+
+        # test sampler with shuffle
+
+        sampler = NCR_Sampler(data, mode="train", batch_size=1, n_neg_samples_t=1, n_neg_samples_vt=2, shuffle=True)
+
+        assert len(sampler) == 3, "the number of batches should be 3"
+        for i, (user_ids, item_ids, histories, feedbacks, negative_item_ids) in enumerate(sampler):
+            assert isinstance(user_ids, torch.Tensor), "user_ids should be of type torch.Tensor"
+            assert isinstance(item_ids, torch.Tensor), "item_ids should be of type torch.Tensor"
+            assert isinstance(histories, torch.Tensor), "histories should be of type torch.Tensor"
+            assert isinstance(feedbacks, torch.Tensor), "feedbacks should be of type torch.Tensor"
+            assert isinstance(negative_item_ids, torch.Tensor), "negative_item_ids should be of type torch.Tensor"
+
+            if i == 0:
+                assert user_ids.numpy()[0] == 1
+                assert item_ids.numpy()[0] == 0
+                assert histories.numpy()[0] == 1
+                assert feedbacks.numpy()[0] == 1
+                assert negative_item_ids.numpy()[0] == 4
+            if i == 1:
+                assert user_ids.numpy()[0] == 0
+                assert item_ids.numpy()[0] == 3
+                assert histories.numpy()[0] == 5
+                assert feedbacks.numpy()[0] == 0
+                assert negative_item_ids.numpy()[0] == 8
+            if i == 2:
+                assert user_ids.numpy()[0] == 0
+                assert item_ids.numpy()[0] == 0
+                assert (histories.numpy()[0] == np.array([5, 3, 1])).all()
+                assert (feedbacks.numpy()[0] == np.array([0, 1, 0])).all()
+                assert negative_item_ids.numpy()[0] == 8
+
+        # test sampler without shuffle, change also batch size in order to test it
+
+        sampler = NCR_Sampler(data, mode="train", batch_size=2, n_neg_samples_t=1, n_neg_samples_vt=2,
+                              shuffle=False)
+
+        assert len(sampler) == 2, "the number of batches should be 2"
+        for i, (user_ids, item_ids, histories, feedbacks, negative_item_ids) in enumerate(sampler):
+            assert isinstance(user_ids, torch.Tensor), "user_ids should be of type torch.Tensor"
+            assert isinstance(item_ids, torch.Tensor), "item_ids should be of type torch.Tensor"
+            assert isinstance(histories, torch.Tensor), "histories should be of type torch.Tensor"
+            assert isinstance(feedbacks, torch.Tensor), "feedbacks should be of type torch.Tensor"
+            assert isinstance(negative_item_ids,
+                              torch.Tensor), "negative_item_ids should be of type torch.Tensor"
+
+            if i == 0:
+                assert (user_ids.numpy() == np.array([0, 1])).all()
+                assert (item_ids.numpy() == np.array([3, 0])).all()
+                assert (histories.numpy() == np.array([[5], [1]])).all()
+                assert (feedbacks.numpy() == np.array([[0], [1]])).all()
+                assert (negative_item_ids.numpy() == np.array([[7], [2]])).all()
+            if i == 1:
+                assert user_ids.numpy()[0] == 0
+                assert item_ids.numpy()[0] == 0
+                assert (histories.numpy()[0] == np.array([5, 3, 1])).all()
+                assert (feedbacks.numpy()[0] == np.array([0, 1, 0])).all()
+                assert negative_item_ids.numpy()[0] == 8
+
+        # test valid mode
+
+        sampler.valid(batch_size=1)
+
+        assert len(sampler) == 1, "the number of batches should be 1"
+
+        for user_ids, item_ids, histories, feedbacks, negative_item_ids in sampler:
+            assert isinstance(user_ids, torch.Tensor), "user_ids should be of type torch.Tensor"
+            assert isinstance(item_ids, torch.Tensor), "item_ids should be of type torch.Tensor"
+            assert isinstance(histories, torch.Tensor), "histories should be of type torch.Tensor"
+            assert isinstance(feedbacks, torch.Tensor), "feedbacks should be of type torch.Tensor"
+            assert isinstance(negative_item_ids,
+                              torch.Tensor), "negative_item_ids should be of type torch.Tensor"
+
+            assert user_ids.numpy()[0] == 1
+            assert item_ids.numpy()[0] == 8
+            assert (histories.numpy() == np.array([0, 6, 7])).all()
+            assert (feedbacks.numpy() == np.array([1, 0, 0])).all()
+            assert (negative_item_ids.numpy() == np.array([2, 4])).all()
+
+        # test test mode
+
+        sampler.test()
+        assert len(sampler) == 2, "the number of batches should be 2"
+
+        for i, (user_ids, item_ids, histories, feedbacks, negative_item_ids) in enumerate(sampler):
+            assert isinstance(user_ids, torch.Tensor), "user_ids should be of type torch.Tensor"
+            assert isinstance(item_ids, torch.Tensor), "item_ids should be of type torch.Tensor"
+            assert isinstance(histories, torch.Tensor), "histories should be of type torch.Tensor"
+            assert isinstance(feedbacks, torch.Tensor), "feedbacks should be of type torch.Tensor"
+            assert isinstance(negative_item_ids,
+                              torch.Tensor), "negative_item_ids should be of type torch.Tensor"
+
+            if i == 0:
+                assert user_ids.numpy()[0] == 0
+                assert item_ids.numpy()[0] == 4
+                assert (histories.numpy() == np.array([1, 0, 2])).all()
+                assert (feedbacks.numpy() == np.array([0, 1, 0])).all()
+                assert (negative_item_ids.numpy() == np.array([7, 6])).all()
+            if i == 1:
+                assert user_ids.numpy()[0] == 1
+                assert item_ids.numpy()[0] == 3
+                assert (histories.numpy() == np.array([6, 7, 8])).all()
+                assert (feedbacks.numpy() == np.array([0, 0, 1])).all()
+                assert (negative_item_ids.numpy() == np.array([4, 2])).all()
+
 
 def test_CFGAN_Sampler():
     """Test the CFGAN_Sampler class

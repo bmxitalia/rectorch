@@ -39,6 +39,13 @@ class FakeModelDict(RecSysModel):
     def predict(self, ids, x):
         return (torch.from_numpy(np.array(x)).float() + torch.FloatTensor([[1]*4]), ids)
 
+class FakeNCRModel(RecSysModel):
+    """
+    Fake NCR model
+    """
+    def predict(self, x):
+
+        return positive_predictions, negative_predictions
 
 
 class FakeSampler(Sampler):
@@ -91,6 +98,11 @@ class FakeSamplerDict(Sampler):
 
     def __len__(self):
         return 2
+
+class FakeNCR_Sampler(Sampler):
+    """
+    Fake NCR sampler
+    """
 
 def test_evaluate():
     """Test the evaluate function

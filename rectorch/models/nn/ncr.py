@@ -325,7 +325,7 @@ class NCR_net(NeuralNet):
         :class:`torch.Tensor`
             Intermediate event vectors that have to be used by the model for performing the logical regularization.
         """
-        user_ids, items_ids, histories, history_feedbacks, neg_item_ids = batch_data
+        user_ids, item_ids, histories, history_feedbacks, neg_item_ids = batch_data
         # here, we select the user and item (also negative) embeddings given user, item and negative item ids
         user_embs = self.user_embeddings(user_ids)
         item_embs = self.item_embeddings(item_ids)
